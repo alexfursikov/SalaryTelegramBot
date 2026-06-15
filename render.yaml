@@ -9,13 +9,4 @@ services:
       - key: TELEGRAM_ADMIN_USER_ID
         sync: false
       - key: ConnectionStrings__DefaultConnection
-        fromDatabase:
-          name: salary-postgres
-          property: connectionString
-    dependsOn:
-      - salary-postgres
-
-  - type: pgsql
-    name: salary-postgres
-    database: salary_bot
-    plan: free
+        sync: false
