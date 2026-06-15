@@ -1,0 +1,16 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: SalaryTelegramBot.Api/Dockerfile
+    container_name: salary-telegram-bot
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Telegram__Token: ${TELEGRAM_BOT_TOKEN}
+      Telegram__AdminUserIds__0: ${TELEGRAM_ADMIN_USER_ID}
+    volumes:
+      - bot_data:/app/data
+
+volumes:
+  bot_data:

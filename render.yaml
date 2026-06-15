@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: salary-telegram-bot
+    runtime: docker
+    dockerfilePath: SalaryTelegramBot.Api/Dockerfile
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_USER_ID
+        sync: false
+      - key: ConnectionStrings__DefaultConnection
+        value: Data Source=/app/data/salary_bot.db
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+    disk:
+      name: bot-data
+      mountPath: /app/data
+      sizeGB: 1
