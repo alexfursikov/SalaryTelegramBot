@@ -4,7 +4,7 @@ services:
     runtime: docker
     dockerfilePath: SalaryTelegramBot.Api/Dockerfile
     envVars:
-      - key: TELEGRAM_BOT_TOKEN
+      - key: TELEGRAM__Token
         sync: false
       - key: TELEGRAM_ADMIN_USER_ID
         sync: false

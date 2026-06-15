@@ -50,7 +50,8 @@ public class TelegramBotService : BackgroundService
         CancellationToken stoppingToken)
     {
         var token = _config["Telegram:Token"]
-            ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN");
+            ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
+            ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
 
         if (string.IsNullOrWhiteSpace(token))
         {
