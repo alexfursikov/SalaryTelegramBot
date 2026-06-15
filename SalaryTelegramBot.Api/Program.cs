@@ -9,7 +9,7 @@ builder.Services.Configure<SalarySettings>(
     builder.Configuration.GetSection("Salary"));
 
 builder.Services.AddDbContext<AppDbContext>(x =>
-    x.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    x.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();

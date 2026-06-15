@@ -1,16 +1,36 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: salary-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: salary_bot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 
+    ports:
+      - "55432:5432"
+    volumes:
+      - salary_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d salary_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  
   bot:
     build:
       context: .
       dockerfile: SalaryTelegramBot.Api/Dockerfile
     container_name: salary-telegram-bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=salary_bot;Username=postgres;Password=
       Telegram__Token: ${TELEGRAM_BOT_TOKEN}
       Telegram__AdminUserIds__0: ${TELEGRAM_ADMIN_USER_ID}
-    volumes:
-      - bot_data:/app/data
 
 volumes:
-  bot_data:
+  salary_postgres_data:

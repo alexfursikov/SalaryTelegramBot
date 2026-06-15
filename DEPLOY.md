@@ -2,26 +2,43 @@
 
 ## Вариант 1: Render.com (рекомендую)
 
-1. Зарегистрируйтесь на [render.com](https://render.com)
-2. Создайте новый **Web Service**
-3. Подключите ваш GitHub репозиторий
-4. Выберите **Docker** как метод деплоя
-5. В переменных окружения укажите:
-   - `TELEGRAM_BOT_TOKEN` — ваш токен бота
-   - `TELEGRAM_ADMIN_USER_ID` — ваш Telegram ID
-6. Создайте **Disk** (1GB) и примонтируйте к `/app/data`
-7. Деплой запустится автоматически
+### Шаг 1: Создай PostgreSQL базу данных
 
-**Бесплатный тир**: 750 часов/мес, автоматический засыпает после 15 мин без активности (но для бота это ок — он проснется при сообщении).
+1. Зайди на [render.com](https://render.com)
+2. Нажми **New +** → **PostgreSQL**
+3. Настройки:
+   - **Name:** `salary-postgres`
+   - **Database:** `salary_bot`
+   - **User:** `postgres`
+   - **Plan:** Free
+4. Нажми **Create Database**
+5. Скопируй **Internal Database URL** (выглядит как `postgres://postgres:...@...`)
+
+### Шаг 2: Создай Web Service
+
+1. Нажми **New +** → **Web Service**
+2. Подключи репозиторий `SalaryTelegramBot`
+3. Настройки:
+   - **Name:** `salary-telegram-bot`
+   - **Runtime:** `Docker`
+   - **DockerfilePath:** `SalaryTelegramBot.Api/Dockerfile`
+4. В **Environment Variables** добавь:
+   - `TELEGRAM_BOT_TOKEN` = твой токен
+   - `TELEGRAM_ADMIN_USER_ID` = `454887189`
+   - `ConnectionStrings__DefaultConnection` = URL из шага 1
+5. Нажми **Create Web Service**
+
+**Бесплатный тир**: 750 часов/мес, автоматический засыпает после 15 мин без активности.
 
 ## Вариант 2: Railway.app
 
 1. Зарегистрируйтесь на [railway.app](https://railway.com)
 2. Создайте новый проект из GitHub
-3. Railway автоматически определит `railway.json`
+3. Добавьте PostgreSQL сервис
 4. В переменных окружения укажите:
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_ADMIN_USER_ID`
+   - `ConnectionStrings__DefaultConnection` = URL PostgreSQL
 5. Деплой запустится автоматически
 
 **Бесплатный тир**: $5 кредитов/мес (хватает на 24/7 работу бота).
@@ -31,26 +48,33 @@
 1. Установите flyctl: `curl -L https://fly.io/install.sh | sh`
 2. Войдите: `fly auth login`
 3. Инициализируйте: `fly launch`
-4. Создайте volume: `fly volumes create bot_data --size 1`
+4. Добавьте PostgreSQL: `fly postgres create`
 5. Деплой: `fly deploy`
 6. Установите переменные:
    ```bash
    fly secrets set TELEGRAM_BOT_TOKEN="ваш_токен"
    fly secrets set TELEGRAM_ADMIN_USER_ID="ваш_id"
+   fly secrets set ConnectionStrings__DefaultConnection="ваш_url"
    ```
 
 **Бесплатный тир**: 3共享 CPU + 256MB RAM бесплатно.
 
-## Локальный запуск (без Docker)
+## Локальный запуск
 
+### С Docker (рекомендовано)
+```bash
+docker compose up --build
+```
+Бот + PostgreSQL запустятся локально. Бот будет доступен на `http://localhost:5116`.
+
+### Без Docker
 ```bash
 dotnet run --project SalaryTelegramBot.Api
 ```
-
-Бот запустится с SQLite базой в текущей директории (`salary_bot.db`).
+Требует PostgreSQL на порту 55432.
 
 ## Важно
 
-- Все варианты используют SQLite — данные хранятся в файле `salary_bot.db`
-- Бэкап данных: просто скопируйте файл `salary_bot.db`
+- Данные хранятся в PostgreSQL — перезапуск/деплой не удаляет их
+- Бэкоп: `pg_dump -U postgres salary_bot > backup.sql`
 - Токен бота хранится в переменных окружения, не в коде
