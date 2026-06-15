@@ -43,8 +43,16 @@ public class TelegramBotService : BackgroundService
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
-        var bot = new TelegramBotClient(
-            _config["Telegram:Token"]!);
+        var token = _config["Telegram:Token"]
+            ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN");
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            Console.WriteLine("ERROR: Telegram bot token not configured. Set Telegram:Token in appsettings or TELEGRAM__TOKEN env var.");
+            return;
+        }
+
+        var bot = new TelegramBotClient(token);
 
         var receiverOptions = new ReceiverOptions
         {

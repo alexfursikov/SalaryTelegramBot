@@ -8,13 +8,22 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<SalarySettings>(
     builder.Configuration.GetSection("Salary"));
 
-builder.Services.AddDbContext<AppDbContext>(x =>
-    x.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Database connection string not configured. Set ConnectionStrings:DefaultConnection in appsettings or ConnectionStrings__DefaultConnection env var.");
+}
+
+builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
 
 builder.Services.AddHostedService<TelegramBotService>();
+builder.Services.AddHostedService<SchedulerService>();
 
 var app = builder.Build();
 

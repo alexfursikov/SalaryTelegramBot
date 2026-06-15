@@ -8,3 +8,7 @@ obj/
 .vs/
 *.user
 *.suo
+appsettings.Development.json
+AGENTS.md
+DEPLOY.md
+.env.example
