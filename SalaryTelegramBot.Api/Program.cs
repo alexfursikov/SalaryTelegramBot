@@ -13,12 +13,21 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 if (string.IsNullOrWhiteSpace(connectionString))
     connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
 
+Console.WriteLine($"Connection string loaded: length={connectionString?.Length ?? -1}");
+
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        $"Database connection string not configured. " +
-        $"Set ConnectionStrings:DefaultConnection in appsettings or ConnectionStrings__DefaultConnection env var. " +
-        $"Current value length: {connectionString?.Length ?? -1}");
+        "Database connection string not configured. " +
+        "Set ConnectionStrings__DefaultConnection env var in Render.");
+}
+
+if (!connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) &&
+    !connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) &&
+    !connectionString.Contains("SSL Mode", StringComparison.OrdinalIgnoreCase) &&
+    !connectionString.Contains("sslmode", StringComparison.OrdinalIgnoreCase))
+{
+    connectionString += connectionString.Contains(';') ? ";SSL Mode=Require" : "?SSL Mode=Require";
 }
 
 builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
