@@ -15,6 +15,8 @@ COPY --from=build /app/publish .
 ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/salary_bot.db"
 ENV ASPNETCORE_URLS="http://+:8080"
 
+RUN mkdir -p /app/data
+
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "SalaryTelegramBot.Api.dll"]
