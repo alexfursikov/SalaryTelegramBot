@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SalaryTelegramBot.Api.Configuration;
@@ -27,22 +26,39 @@ connectionString = connectionString.Trim().Trim('"');
 if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
     connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
 {
-    var match = Regex.Match(connectionString,
-        @"^postgre(s)?://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)");
+    var withoutScheme = connectionString["postgresql://".Length..];
+    if (connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
+        withoutScheme = connectionString["postgres://".Length..];
 
-    if (!match.Success)
-        throw new InvalidOperationException($"Cannot parse connection URI: {connectionString[..Math.Min(30, connectionString.Length)]}...");
+    var atIndex = withoutScheme.LastIndexOf('@');
+    if (atIndex < 0)
+        throw new InvalidOperationException("Invalid connection URI: no '@' found.");
 
-    var sb = new NpgsqlConnectionStringBuilder
+    var userPart = withoutScheme[..atIndex];
+    var hostPart = withoutScheme[(atIndex + 1)..];
+
+    var colonIndex = userPart.IndexOf(':');
+    var username = colonIndex >= 0 ? Uri.UnescapeDataString(userPart[..colonIndex]) : Uri.UnescapeDataString(userPart);
+    var password = colonIndex >= 0 ? Uri.UnescapeDataString(userPart[(colonIndex + 1)..]) : "";
+
+    var slashIndex = hostPart.IndexOf('/');
+    var hostPort = slashIndex >= 0 ? hostPart[..slashIndex] : hostPart;
+    var database = slashIndex >= 0 ? hostPart[(slashIndex + 1)..] : "postgres";
+
+    var portColonIndex = hostPort.IndexOf(':');
+    var host = portColonIndex >= 0 ? hostPort[..portColonIndex] : hostPort;
+    var port = portColonIndex >= 0 && int.TryParse(hostPort[(portColonIndex + 1)..], out var p) ? p : 5432;
+
+    var pgBuilder = new NpgsqlConnectionStringBuilder
     {
-        Host = match.Groups[4].Value,
-        Port = match.Groups[5].Success ? int.Parse(match.Groups[5].Value) : 5432,
-        Database = match.Groups[6].Value,
-        Username = Uri.UnescapeDataString(match.Groups[2].Value),
-        Password = Uri.UnescapeDataString(match.Groups[3].Value),
+        Host = host,
+        Port = port,
+        Database = database,
+        Username = username,
+        Password = password,
         SslMode = SslMode.Require
     };
-    connectionString = sb.ConnectionString;
+    connectionString = pgBuilder.ConnectionString;
 }
 
 builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
