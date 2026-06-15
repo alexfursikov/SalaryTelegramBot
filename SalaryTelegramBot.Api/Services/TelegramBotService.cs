@@ -58,11 +58,11 @@ public class TelegramBotService : BackgroundService
 
         if (string.IsNullOrWhiteSpace(token))
         {
-            Console.WriteLine("ERROR: Telegram bot token not configured. Set TELEGRAM__TOKEN env var.");
+            _logger.LogError("Telegram bot token not configured. Set TELEGRAM__TOKEN env var.");
             return;
         }
 
-        Console.WriteLine($"Bot token: {token[..Math.Min(5, token.Length)]}...{token[^4..]}");
+        _logger.LogInformation("Bot token: {Start}...{End}", token[..Math.Min(5, token.Length)], token[^4..]);
 
         var bot = new TelegramBotClient(token);
 
@@ -71,15 +71,33 @@ public class TelegramBotService : BackgroundService
             AllowedUpdates = Array.Empty<UpdateType>()
         };
 
-        bot.StartReceiving(
-            HandleUpdate,
-            HandleError,
-            receiverOptions,
-            stoppingToken);
+        _logger.LogInformation("Bot started, entering polling loop");
 
-        Console.WriteLine("Bot started");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                var internalToken = cts.Token;
 
-        await Task.Delay(-1, stoppingToken);
+                bot.StartReceiving(
+                    HandleUpdate,
+                    HandleError,
+                    receiverOptions,
+                    internalToken);
+
+                await Task.Delay(-1, internalToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Bot polling stopped, restarting in 30s...");
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            }
+        }
     }
 
     private async Task HandleUpdate(
@@ -87,27 +105,32 @@ public class TelegramBotService : BackgroundService
         Update update,
         CancellationToken token)
     {
-        if (update.CallbackQuery is { } callbackQuery)
+        try
         {
-            var cbChatId = callbackQuery.Message?.Chat.Id ?? callbackQuery.From.Id;
-            if (!_rateLimiter.IsAllowed(cbChatId))
+            if (update.CallbackQuery is { } callbackQuery)
+            {
+                var cbChatId = callbackQuery.Message?.Chat.Id ?? callbackQuery.From.Id;
+                _logger.LogInformation("Callback: {Data} from chat {ChatId}", callbackQuery.Data, cbChatId);
+                if (!_rateLimiter.IsAllowed(cbChatId))
+                    return;
+
+                using var cbScope = _provider.CreateScope();
+                var cbSalaryService = cbScope.ServiceProvider.GetRequiredService<SalaryService>();
+                var cbScheduleService = cbScope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
+                await HandleCallbackQuery(bot, callbackQuery, cbSalaryService, cbScheduleService, token);
+                return;
+            }
+
+            if (update.Message?.Text is null)
                 return;
 
-            using var cbScope = _provider.CreateScope();
-            var cbSalaryService = cbScope.ServiceProvider.GetRequiredService<SalaryService>();
-            var cbScheduleService = cbScope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
-            await HandleCallbackQuery(bot, callbackQuery, cbSalaryService, cbScheduleService, token);
-            return;
-        }
+            var text = update.Message.Text.Trim();
+            var chatId = update.Message.Chat.Id;
 
-        if (update.Message?.Text is null)
-            return;
+            _logger.LogInformation("Message from {ChatId}: {Text}", chatId, text);
 
-        var text = update.Message.Text.Trim();
-        var chatId = update.Message.Chat.Id;
-
-        if (!_rateLimiter.IsAllowed(chatId))
-            return;
+            if (!_rateLimiter.IsAllowed(chatId))
+                return;
 
         using var scope = _provider.CreateScope();
 
@@ -462,6 +485,11 @@ public class TelegramBotService : BackgroundService
             }
 
             return;
+        }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error handling update");
         }
     }
 
