@@ -59,6 +59,7 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         SslMode = SslMode.Require
     };
     connectionString = pgBuilder.ConnectionString;
+    Console.WriteLine($"DB user: {username}, host: {host}:{port}, db: {database}");
 }
 
 builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
