@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Collections.Concurrent;
 using System.Net;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -29,15 +28,22 @@ public class TelegramBotService : BackgroundService
     private const string CbMain = "menu:main";
     private readonly IServiceProvider _provider;
     private readonly IConfiguration _config;
-    private static readonly ConcurrentDictionary<long, BotAwaitState> AwaitStates = new();
-    private static readonly ConcurrentDictionary<long, decimal> PendingPayAmounts = new();
+    private readonly BotStateService _state;
+    private readonly RateLimiter _rateLimiter;
+    private readonly ILogger<TelegramBotService> _logger;
 
     public TelegramBotService(
         IServiceProvider provider,
-        IConfiguration config)
+        IConfiguration config,
+        BotStateService state,
+        RateLimiter rateLimiter,
+        ILogger<TelegramBotService> logger)
     {
         _provider = provider;
         _config = config;
+        _state = state;
+        _rateLimiter = rateLimiter;
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(
@@ -75,17 +81,16 @@ public class TelegramBotService : BackgroundService
         Update update,
         CancellationToken token)
     {
-        using var scope = _provider.CreateScope();
-
-        var salaryService =
-            scope.ServiceProvider.GetRequiredService<SalaryService>();
-
-        var scheduleService =
-            scope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
-
         if (update.CallbackQuery is { } callbackQuery)
         {
-            await HandleCallbackQuery(bot, callbackQuery, salaryService, scheduleService, token);
+            var cbChatId = callbackQuery.Message?.Chat.Id ?? callbackQuery.From.Id;
+            if (!_rateLimiter.IsAllowed(cbChatId))
+                return;
+
+            using var cbScope = _provider.CreateScope();
+            var cbSalaryService = cbScope.ServiceProvider.GetRequiredService<SalaryService>();
+            var cbScheduleService = cbScope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
+            await HandleCallbackQuery(bot, callbackQuery, cbSalaryService, cbScheduleService, token);
             return;
         }
 
@@ -94,20 +99,32 @@ public class TelegramBotService : BackgroundService
 
         var text = update.Message.Text.Trim();
         var chatId = update.Message.Chat.Id;
+
+        if (!_rateLimiter.IsAllowed(chatId))
+            return;
+
+        using var scope = _provider.CreateScope();
+
+        var salaryService =
+            scope.ServiceProvider.GetRequiredService<SalaryService>();
+
+        var scheduleService =
+            scope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
         
         await scheduleService.EnsureSeededForChatAsync(chatId);
 
         if (text == "Отмена")
         {
-            AwaitStates.TryRemove(chatId, out _);
-            PendingPayAmounts.TryRemove(chatId, out _);
+            _state.ClearAll(chatId);
             await bot.SendMessage(chatId, "Действие отменено.", replyMarkup: GetMainKeyboard(), cancellationToken: token);
             return;
         }
 
-        if (AwaitStates.TryGetValue(chatId, out var state))
+        var currentState = _state.GetState(chatId);
+        if (currentState is not null)
         {
-            var handled = state switch
+            var parsed = Enum.Parse<BotAwaitState>(currentState);
+            var handled = parsed switch
             {
                 BotAwaitState.PayAmountInput => await HandlePayAmountInput(bot, chatId, text, token),
                 BotAwaitState.PayDateInput => await HandlePayDateInput(bot, salaryService, chatId, text, token),
@@ -121,7 +138,7 @@ public class TelegramBotService : BackgroundService
             };
 
             if (handled)
-                AwaitStates.TryRemove(chatId, out _);
+                _state.RemoveState(chatId);
 
             return;
         }
@@ -162,25 +179,25 @@ public class TelegramBotService : BackgroundService
             text = "/editamount";
         else if (text == "💸 Выплата")
         {
-            AwaitStates[chatId] = BotAwaitState.PayAmountInput;
+            _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
 
             await bot.SendMessage(
                 chatId,
-"""
-💸 Учет полученной выплаты
+                """
+                💸 Учет полученной выплаты
 
-Шаг 1: введите сумму, которую вы фактически получили.
-Примеры:
-100000
-75500
-""",
+                Шаг 1: введите сумму, которую вы фактически получили.
+                Примеры:
+                100000
+                75500
+                """,
                 replyMarkup: GetCancelKeyboard(),
                 cancellationToken: token);
             return;
         }
         else if (text == "➕ Начисление")
         {
-            AwaitStates[chatId] = BotAwaitState.ScheduleAddInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleAddInput));
 
             await bot.SendMessage(
                 chatId,
@@ -204,7 +221,7 @@ public class TelegramBotService : BackgroundService
         }
         else if (text == "➖ Начисление")
         {
-            AwaitStates[chatId] = BotAwaitState.ScheduleDelInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleDelInput));
 
             await bot.SendMessage(
                 chatId,
@@ -222,7 +239,7 @@ public class TelegramBotService : BackgroundService
         }
         else if (text == "⏰ Время начисления")
         {
-            AwaitStates[chatId] = BotAwaitState.ScheduleTimeInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleTimeInput));
 
             await bot.SendMessage(
                 chatId,
@@ -242,7 +259,7 @@ public class TelegramBotService : BackgroundService
 
         if (text == "/calcfrom")
         {
-            AwaitStates[chatId] = BotAwaitState.CalculationMonthInput;
+            _state.SetState(chatId, nameof(BotAwaitState.CalculationMonthInput));
 
             await bot.SendMessage(
                 chatId,
@@ -313,7 +330,7 @@ public class TelegramBotService : BackgroundService
 
         if (text == "/ndflfrom")
         {
-            AwaitStates[chatId] = BotAwaitState.NdflFromInput;
+            _state.SetState(chatId, nameof(BotAwaitState.NdflFromInput));
             await bot.SendMessage(
                 chatId,
 """
@@ -359,7 +376,7 @@ public class TelegramBotService : BackgroundService
 
         if (text == "/editamount" || text == "/editpay")
         {
-            AwaitStates[chatId] = BotAwaitState.EditPayInput;
+            _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
             await bot.SendMessage(
                 chatId,
 """
@@ -484,7 +501,7 @@ public class TelegramBotService : BackgroundService
                 break;
             }
             case CbPay:
-                AwaitStates[chatId] = BotAwaitState.PayAmountInput;
+                _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -524,7 +541,7 @@ public class TelegramBotService : BackgroundService
                 break;
             }
             case CbScheduleAdd:
-                AwaitStates[chatId] = BotAwaitState.ScheduleAddInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleAddInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -546,7 +563,7 @@ public class TelegramBotService : BackgroundService
                     token);
                 break;
             case CbScheduleDel:
-                AwaitStates[chatId] = BotAwaitState.ScheduleDelInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleDelInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -562,7 +579,7 @@ public class TelegramBotService : BackgroundService
                     token);
                 break;
             case CbScheduleTime:
-                AwaitStates[chatId] = BotAwaitState.ScheduleTimeInput;
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleTimeInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -579,7 +596,7 @@ public class TelegramBotService : BackgroundService
                     token);
                 break;
             case CbCalcFrom:
-                AwaitStates[chatId] = BotAwaitState.CalculationMonthInput;
+            _state.SetState(chatId, nameof(BotAwaitState.CalculationMonthInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -617,7 +634,7 @@ public class TelegramBotService : BackgroundService
                 break;
             }
             case CbNdflFrom:
-                AwaitStates[chatId] = BotAwaitState.NdflFromInput;
+            _state.SetState(chatId, nameof(BotAwaitState.NdflFromInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -633,7 +650,7 @@ public class TelegramBotService : BackgroundService
                     token);
                 break;
             case CbEditAmount:
-                AwaitStates[chatId] = BotAwaitState.EditPayInput;
+            _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,
@@ -809,12 +826,12 @@ $"""
         Exception ex,
         CancellationToken token)
     {
-        Console.WriteLine(ex);
+        _logger.LogError(ex, "Telegram bot error");
 
         return Task.CompletedTask;
     }
 
-    private static async Task<bool> HandlePayAmountInput(
+    private async Task<bool> HandlePayAmountInput(
         ITelegramBotClient bot,
         long chatId,
         string text,
@@ -823,8 +840,8 @@ $"""
         try
         {
             var amount = decimal.Parse(text, CultureInfo.InvariantCulture);
-            PendingPayAmounts[chatId] = amount;
-            AwaitStates[chatId] = BotAwaitState.PayDateInput;
+            _state.SetPendingAmount(chatId, amount);
+            _state.SetState(chatId, nameof(BotAwaitState.PayDateInput));
 
             await bot.SendMessage(
                 chatId,
@@ -859,16 +876,17 @@ $"""
         }
     }
 
-    private static async Task<bool> HandlePayDateInput(
+    private async Task<bool> HandlePayDateInput(
         ITelegramBotClient bot,
         SalaryService salaryService,
         long chatId,
         string text,
         CancellationToken token)
     {
-        if (!PendingPayAmounts.TryGetValue(chatId, out var amount))
+        var amount = _state.GetPendingAmount(chatId);
+        if (amount is null)
         {
-            AwaitStates.TryRemove(chatId, out _);
+            _state.RemoveState(chatId);
             await bot.SendMessage(chatId, "Сумма не найдена. Нажмите 'Выплата' снова.", replyMarkup: GetMainKeyboard(), cancellationToken: token);
             return true;
         }
@@ -879,8 +897,8 @@ $"""
                 ? DateTime.Now
                 : ParseUserDate(text);
 
-            await salaryService.AddPayment(chatId, amount, date);
-            PendingPayAmounts.TryRemove(chatId, out _);
+            await salaryService.AddPayment(chatId, amount.Value, date);
+            _state.RemovePendingAmount(chatId);
 
             await bot.SendMessage(
                 chatId,

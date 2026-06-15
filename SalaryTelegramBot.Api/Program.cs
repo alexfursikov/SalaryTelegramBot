@@ -22,6 +22,9 @@ builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
 
+builder.Services.AddSingleton<BotStateService>();
+builder.Services.AddSingleton<RateLimiter>();
+
 builder.Services.AddHostedService<TelegramBotService>();
 builder.Services.AddHostedService<SchedulerService>();
 

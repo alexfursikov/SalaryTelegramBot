@@ -3,20 +3,21 @@ services:
     image: postgres:16
     container_name: salary-postgres
     restart: unless-stopped
+    env_file: .env
     environment:
       POSTGRES_DB: salary_bot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
-      - "55432:5432"
+      - "${POSTGRES_PORT:-55432}:5432"
     volumes:
       - salary_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d salary_bot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d salary_bot"]
       interval: 5s
       timeout: 5s
       retries: 10
-  
+
   bot:
     build:
       context: .
@@ -26,10 +27,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file: .env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=salary_bot;Username=postgres;Password=
-      Telegram__Token: ${TELEGRAM_BOT_TOKEN}
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=salary_bot;Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      Telegram__Token: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in .env}
       Telegram__AdminUserIds__0: ${TELEGRAM_ADMIN_USER_ID}
 
 volumes:
