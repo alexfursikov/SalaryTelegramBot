@@ -6,7 +6,7 @@ services:
     envVars:
       - key: TELEGRAM__Token
         sync: false
-      - key: TELEGRAM_ADMIN_USER_ID
+      - key: TELEGRAM__AdminUserIds__0
         sync: false
       - key: ConnectionStrings__DefaultConnection
         sync: false
