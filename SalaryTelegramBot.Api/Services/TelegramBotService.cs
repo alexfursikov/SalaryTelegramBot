@@ -62,6 +62,8 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
+        Console.WriteLine($"Bot token: {token[..Math.Min(5, token.Length)]}...{token[^4..]}");
+
         var bot = new TelegramBotClient(token);
 
         var receiverOptions = new ReceiverOptions
