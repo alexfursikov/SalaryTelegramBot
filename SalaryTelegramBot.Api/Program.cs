@@ -1,6 +1,4 @@
-using System.Data.Common;
-using System.Security.Cryptography;
-using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using SalaryTelegramBot.Api.Configuration;
@@ -29,15 +27,19 @@ connectionString = connectionString.Trim().Trim('"');
 if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
     connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
 {
-    var uri = new Uri(connectionString);
-    var userInfo = uri.UserInfo.Split(':', 2);
+    var match = Regex.Match(connectionString,
+        @"^postgre(s)?://([^:]+):([^@]+)@([^:/]+)(?::(\d+))?/([^?]+)");
+
+    if (!match.Success)
+        throw new InvalidOperationException($"Cannot parse connection URI: {connectionString[..Math.Min(30, connectionString.Length)]}...");
+
     var sb = new NpgsqlConnectionStringBuilder
     {
-        Host = uri.Host,
-        Port = uri.Port > 0 ? uri.Port : 5432,
-        Database = uri.AbsolutePath.TrimStart('/'),
-        Username = Uri.UnescapeDataString(userInfo[0]),
-        Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "",
+        Host = match.Groups[4].Value,
+        Port = match.Groups[5].Success ? int.Parse(match.Groups[5].Value) : 5432,
+        Database = match.Groups[6].Value,
+        Username = Uri.UnescapeDataString(match.Groups[2].Value),
+        Password = Uri.UnescapeDataString(match.Groups[3].Value),
         SslMode = SslMode.Require
     };
     connectionString = sb.ConnectionString;
