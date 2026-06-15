@@ -275,6 +275,20 @@ public class TelegramBotService : BackgroundService
             return;
         }
 
+        if (text == "/users")
+        {
+            var adminIds = _config.GetSection("Telegram:AdminUserIds").Get<long[]>() ?? [];
+            if (!adminIds.Contains(chatId))
+            {
+                await bot.SendMessage(chatId, "Нет доступа.", cancellationToken: token);
+                return;
+            }
+
+            var count = await salaryService.GetUserCount();
+            await bot.SendMessage(chatId, $"Пользователей: {count}", cancellationToken: token);
+            return;
+        }
+
         if (text == "/recalc")
         {
             var result = await scheduleService.RecalculateAccrualsAsync(chatId, salaryService);

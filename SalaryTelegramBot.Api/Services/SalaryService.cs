@@ -198,6 +198,11 @@ public class SalaryService
         return changed;
     }
 
+    public async Task<int> GetUserCount()
+    {
+        return await _db.BotSettings.Select(x => x.ChatId).Distinct().CountAsync();
+    }
+
     public async Task<string> GetStatus(long chatId)
     {
         var calculationStartDate = await GetCalculationStartDate(chatId);
