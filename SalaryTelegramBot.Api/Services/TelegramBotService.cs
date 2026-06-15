@@ -31,6 +31,7 @@ public class TelegramBotService : BackgroundService
     private readonly BotStateService _state;
     private readonly RateLimiter _rateLimiter;
     private readonly ILogger<TelegramBotService> _logger;
+    private CancellationTokenSource? _pollingCts;
 
     public TelegramBotService(
         IServiceProvider provider,
@@ -75,18 +76,30 @@ public class TelegramBotService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            _pollingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+
             try
             {
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                var internalToken = cts.Token;
-
                 bot.StartReceiving(
                     HandleUpdate,
                     HandleError,
                     receiverOptions,
-                    internalToken);
+                    _pollingCts.Token);
 
-                await Task.Delay(-1, internalToken);
+                _logger.LogInformation("Polling started, waiting...");
+
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, _pollingCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    if (stoppingToken.IsCancellationRequested)
+                        break;
+
+                    _logger.LogWarning("Polling cancelled (likely conflict), restarting in 10s...");
+                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -94,7 +107,7 @@ public class TelegramBotService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Bot polling stopped, restarting in 30s...");
+                _logger.LogWarning(ex, "Polling error, restarting in 30s...");
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
         }
@@ -861,6 +874,12 @@ $"""
         CancellationToken token)
     {
         _logger.LogError(ex, "Telegram bot error");
+
+        if (ex is Telegram.Bot.Exceptions.ApiRequestException { ErrorCode: 409 })
+        {
+            _logger.LogWarning("Conflict detected, stopping polling to restart");
+            _pollingCts?.Cancel();
+        }
 
         return Task.CompletedTask;
     }
