@@ -1,4 +1,8 @@
+using System.Data.Common;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using SalaryTelegramBot.Api.Configuration;
 using SalaryTelegramBot.Api.Data;
 using SalaryTelegramBot.Api.Services;
@@ -13,8 +17,6 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 if (string.IsNullOrWhiteSpace(connectionString))
     connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
 
-Console.WriteLine($"Connection string loaded: length={connectionString?.Length ?? -1}");
-
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
@@ -22,12 +24,23 @@ if (string.IsNullOrWhiteSpace(connectionString))
         "Set ConnectionStrings__DefaultConnection env var in Render.");
 }
 
-if (!connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) &&
-    !connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) &&
-    !connectionString.Contains("SSL Mode", StringComparison.OrdinalIgnoreCase) &&
-    !connectionString.Contains("sslmode", StringComparison.OrdinalIgnoreCase))
+connectionString = connectionString.Trim().Trim('"');
+
+if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) ||
+    connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
 {
-    connectionString += connectionString.Contains(';') ? ";SSL Mode=Require" : "?SSL Mode=Require";
+    var uri = new Uri(connectionString);
+    var userInfo = uri.UserInfo.Split(':', 2);
+    var sb = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = uri.AbsolutePath.TrimStart('/'),
+        Username = Uri.UnescapeDataString(userInfo[0]),
+        Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "",
+        SslMode = SslMode.Require
+    };
+    connectionString = sb.ConnectionString;
 }
 
 builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
