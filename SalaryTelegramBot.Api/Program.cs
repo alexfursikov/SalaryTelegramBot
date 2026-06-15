@@ -56,13 +56,21 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         Database = database,
         Username = username,
         Password = password,
-        SslMode = SslMode.Require
+        SslMode = SslMode.Require,
+        Pooling = false,
+        CommandTimeout = 60,
+        Timeout = 30
     };
     connectionString = pgBuilder.ConnectionString;
     Console.WriteLine($"DB user: {username}, host: {host}:{port}, db: {database}");
 }
 
-builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
+builder.Services.AddDbContext<AppDbContext>(x =>
+    x.UseNpgsql(connectionString, o =>
+    {
+        o.CommandTimeout(60);
+        o.EnableRetryOnFailure(3);
+    }));
 
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
@@ -81,6 +89,7 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Console.WriteLine("Applying migrations...");
+        db.Database.SetCommandTimeout(60);
         db.Database.Migrate();
         Console.WriteLine("Seeding data...");
         await SeedData.SeedAsync(db);
