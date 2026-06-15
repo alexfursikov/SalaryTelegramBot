@@ -16,7 +16,9 @@ if (string.IsNullOrWhiteSpace(connectionString))
 if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        "Database connection string not configured. Set ConnectionStrings:DefaultConnection in appsettings or ConnectionStrings__DefaultConnection env var.");
+        $"Database connection string not configured. " +
+        $"Set ConnectionStrings:DefaultConnection in appsettings or ConnectionStrings__DefaultConnection env var. " +
+        $"Current value length: {connectionString?.Length ?? -1}");
 }
 
 builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(connectionString));
