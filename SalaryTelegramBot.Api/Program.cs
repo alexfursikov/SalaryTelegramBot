@@ -75,11 +75,23 @@ builder.Services.AddHostedService<SchedulerService>();
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+try
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
-    await SeedData.SeedAsync(db);
-}
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Console.WriteLine("Applying migrations...");
+        db.Database.Migrate();
+        Console.WriteLine("Seeding data...");
+        await SeedData.SeedAsync(db);
+        Console.WriteLine("Database ready.");
+    }
 
-app.Run();
+    Console.WriteLine("Starting bot...");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"FATAL: {ex}");
+    throw;
+}
