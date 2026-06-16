@@ -287,7 +287,7 @@ public class TelegramBotService
         }
     }
 
-    public async Task HandleCallbackAsync(long chatId, string data, string callbackQueryId, CancellationToken token)
+    public async Task HandleCallbackAsync(long chatId, string data, string callbackQueryId, int messageId, CancellationToken token)
     {
         var bot = CreateBotClient();
 
@@ -300,63 +300,77 @@ public class TelegramBotService
 
         await scheduleService.EnsureSeededForChatAsync(chatId);
 
+        async Task Edit(string text, InlineKeyboardMarkup? keyboard = null)
+        {
+            try
+            {
+                await bot.EditMessageText(chatId, messageId, text,
+                    replyMarkup: keyboard, cancellationToken: token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to edit message, sending new one");
+                await bot.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: token);
+            }
+        }
+
         switch (data)
         {
             case CbMain:
-                await bot.SendMessage(chatId, "Выберите действие:", replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit("Выберите действие:", await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbStatus:
                 var status = await salaryService.GetStatus(chatId);
-                await bot.SendMessage(chatId, status, replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit(status, await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbHistory:
                 var history = await salaryService.GetHistory(chatId);
-                await bot.SendMessage(chatId, $"<pre>{WebUtility.HtmlEncode(history)}</pre>",
-                    parseMode: ParseMode.Html, replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit($"<pre>{WebUtility.HtmlEncode(history)}</pre>",
+                    await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbPay:
                 _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
-                await bot.SendMessage(chatId, "💸 Введите сумму выплаты:", replyMarkup: GetBackKeyboard(CbMain), cancellationToken: token);
+                await Edit("💸 Введите сумму выплаты:", GetBackKeyboard(CbMain));
                 break;
             case CbSettings:
                 var settingsText = await BuildSettingsSummaryAsync(scheduleService, chatId);
-                await bot.SendMessage(chatId, settingsText, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit(settingsText, await GetSettingsKeyboardAsync(scheduleService, chatId));
                 break;
             case CbSchedule:
                 var schedule = await scheduleService.FormatScheduleAsync(chatId);
-                await bot.SendMessage(chatId, schedule, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit(schedule, await GetSettingsKeyboardAsync(scheduleService, chatId));
                 break;
             case CbScheduleAdd:
                 _state.SetState(chatId, nameof(BotAwaitState.ScheduleAddInput));
-                await bot.SendMessage(chatId, "➕ Введите: <день> <сумма>", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("➕ Введите: <день> <сумма>", GetBackKeyboard(CbSettings));
                 break;
             case CbScheduleDel:
                 _state.SetState(chatId, nameof(BotAwaitState.ScheduleDelInput));
-                await bot.SendMessage(chatId, "➖ Введите день месяца:", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("➖ Введите день месяца:", GetBackKeyboard(CbSettings));
                 break;
             case CbScheduleTime:
                 _state.SetState(chatId, nameof(BotAwaitState.ScheduleTimeInput));
-                await bot.SendMessage(chatId, "⏰ Введите время (ЧЧ:ММ):", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("⏰ Введите время (ЧЧ:ММ):", GetBackKeyboard(CbSettings));
                 break;
             case CbCalcFrom:
                 _state.SetState(chatId, nameof(BotAwaitState.CalculationMonthInput));
-                await bot.SendMessage(chatId, "📅 Введите дату (ДД.ММ.ГГГГ):", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("📅 Введите дату (ДД.ММ.ГГГГ):", GetBackKeyboard(CbSettings));
                 break;
             case CbRecalc:
                 var recalc = await scheduleService.RecalculateAccrualsAsync(chatId, salaryService);
-                await bot.SendMessage(chatId, recalc, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit(recalc, await GetSettingsKeyboardAsync(scheduleService, chatId));
                 break;
             case CbNdflFlag:
                 var ndfl = await scheduleService.ToggleNdflAsync(chatId);
-                await bot.SendMessage(chatId, ndfl, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                await Edit(ndfl, await GetSettingsKeyboardAsync(scheduleService, chatId));
                 break;
             case CbNdflFrom:
                 _state.SetState(chatId, nameof(BotAwaitState.NdflFromInput));
-                await bot.SendMessage(chatId, "📌 Введите дату старта НДФЛ:", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("📌 Введите дату старта НДФЛ:", GetBackKeyboard(CbSettings));
                 break;
             case CbEditAmount:
                 _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
-                await bot.SendMessage(chatId, "✏️ Формат: <дата> <сумма> [получил]", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                await Edit("✏️ Формат: <дата> <сумма> [получил]", GetBackKeyboard(CbSettings));
                 break;
             default:
                 break;

@@ -40,8 +40,9 @@ public class TelegramWebhookController : ControllerBase
                     ?? cq.SelectToken("from.id")?.Value<long>() ?? 0;
                 var data = cq["data"]?.Value<string>() ?? "";
                 var cqId = cq["id"]?.Value<string>() ?? "";
+                var messageId = cq.SelectToken("message.message_id")?.Value<int>() ?? 0;
                 _logger.LogInformation("Callback update {Id}: chat={Chat}, data={Data}", updateId, chatId, data);
-                await _handler.HandleCallbackAsync(chatId, data, cqId, ct);
+                await _handler.HandleCallbackAsync(chatId, data, cqId, messageId, ct);
             }
             else
             {
