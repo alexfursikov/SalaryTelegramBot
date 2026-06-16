@@ -393,9 +393,10 @@ public class TelegramBotService
                 if (data.StartsWith(CbCurrencySet + ":"))
                 {
                     var code = data[(CbCurrencySet.Length + 1)..];
-                    await scheduleService.SetCurrencyAsync(chatId, code);
+                    var rateService = _provider.CreateScope().ServiceProvider.GetRequiredService<NbrbRateService>();
+                    var (msg, _) = await scheduleService.SetCurrencyAsync(chatId, code, rateService);
                     var newFlag = Currencies.FirstOrDefault(c => c.Code == code).Flag ?? "";
-                    await Edit($"{newFlag} Валюта: {code}", await GetMainKeyboardAsync(scheduleService, chatId));
+                    await Edit($"{newFlag} {msg}", await GetMainKeyboardAsync(scheduleService, chatId));
                 }
                 break;
         }

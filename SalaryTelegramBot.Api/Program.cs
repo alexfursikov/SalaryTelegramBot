@@ -76,6 +76,7 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<TelegramBotService>();
 builder.Services.AddSingleton<BotStateService>();
 builder.Services.AddSingleton<RateLimiter>();
+builder.Services.AddHttpClient<NbrbRateService>();
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
 builder.Services.AddHostedService<SchedulerService>();

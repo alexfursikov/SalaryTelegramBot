@@ -366,11 +366,42 @@ $"""
         return string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
     }
 
-    public async Task<string> SetCurrencyAsync(long chatId, string currency)
+    public async Task<(string Message, bool Converted)> SetCurrencyAsync(long chatId, string currency, NbrbRateService rateService)
     {
         var settings = await GetOrCreateBotSettingsAsync(chatId);
+        var oldCurrency = string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
+
+        if (oldCurrency == currency)
+            return ($"Валюта уже установлена: {currency}", false);
+
+        var (fromRate, toRate) = await rateService.GetRatesAsync(oldCurrency, currency);
+        if (fromRate is null || toRate is null)
+            return ("Не удалось получить курс валюты из НБ РБ.", false);
+
+        var transactions = await _db.Transactions
+            .Where(x => x.ChatId == chatId)
+            .ToListAsync();
+
+        var converted = 0;
+        foreach (var tx in transactions)
+        {
+            tx.Amount = rateService.Convert(tx.Amount, fromRate.Value, toRate.Value);
+            converted++;
+        }
+
+        var rules = await _db.AccrualRules
+            .Where(x => x.ChatId == chatId)
+            .ToListAsync();
+
+        foreach (var rule in rules)
+        {
+            rule.Amount = rateService.Convert(rule.Amount, fromRate.Value, toRate.Value);
+        }
+
         settings.Currency = currency;
         await _db.SaveChangesAsync();
-        return $"Валюта изменена на {currency}";
+
+        var sym = SalaryService.GetCurrencySymbol(currency);
+        return ($"✅ Валюта: {sym} ({currency})\nКонвертировано {converted} записей по курсу НБ РБ: 1 {oldCurrency} = {toRate / fromRate:N4} {currency}", true);
     }
 }
