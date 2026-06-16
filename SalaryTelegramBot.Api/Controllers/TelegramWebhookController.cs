@@ -33,7 +33,7 @@ public class TelegramWebhookController : ControllerBase
                 var text = msg["text"]?.Value<string>() ?? "";
                 _ = Task.Run(async () =>
                 {
-                    try { await _handler.HandleMessageAsync(chatId, text, ct); }
+                    try { await _handler.HandleMessageAsync(chatId, text, CancellationToken.None); }
                     catch (Exception ex) { _logger.LogError(ex, "Error handling message {Id}", updateId); }
                 });
             }
@@ -46,7 +46,7 @@ public class TelegramWebhookController : ControllerBase
                 var messageId = cq.SelectToken("message.message_id")?.Value<int>() ?? 0;
                 _ = Task.Run(async () =>
                 {
-                    try { await _handler.HandleCallbackAsync(chatId, data, cqId, messageId, ct); }
+                    try { await _handler.HandleCallbackAsync(chatId, data, cqId, messageId, CancellationToken.None); }
                     catch (Exception ex) { _logger.LogError(ex, "Error handling callback {Id}", updateId); }
                 });
             }
