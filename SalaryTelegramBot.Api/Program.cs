@@ -61,12 +61,11 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         Pooling = true,
         MinPoolSize = 1,
         MaxPoolSize = 5,
-        ConnectionIdleLifetime = 60,
-        ConnectionPruningInterval = 10,
         CommandTimeout = 60,
         Timeout = 30
     };
-    connectionString = pgBuilder.ConnectionString;
+
+    connectionString = pgBuilder.ConnectionString + ";Keepalive=30";
 }
 
 builder.Services.AddDbContext<AppDbContext>(x =>
@@ -101,11 +100,25 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         db.Database.SetCommandTimeout(60);
-        
-        await db.Database.ExecuteSqlRawAsync(
-            "ALTER TABLE \"BotSettings\" ADD COLUMN IF NOT EXISTS \"Currency\" text NOT NULL DEFAULT 'RUB'");
-        
-        db.Database.Migrate();
+
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                db.Database.Migrate();
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Migration attempt {i + 1} failed: {ex.Message}");
+                if (i == 2) throw;
+                await Task.Delay(2000);
+                db.Dispose();
+                db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                db.Database.SetCommandTimeout(60);
+            }
+        }
+
         await SeedData.SeedAsync(db);
         Console.WriteLine("Database ready.");
     }
