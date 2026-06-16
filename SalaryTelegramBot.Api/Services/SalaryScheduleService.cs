@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SalaryTelegramBot.Api.Configuration;
@@ -10,6 +11,7 @@ public class SalaryScheduleService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _defaultSettings;
+    private static readonly ConcurrentDictionary<long, string> _currencyCache = new();
     private static readonly HashSet<long> _seededChats = new();
 
     public SalaryScheduleService(AppDbContext db, IOptions<SalarySettings> options)
@@ -367,8 +369,13 @@ $"""
 
     public async Task<string> GetCurrencyAsync(long chatId)
     {
+        if (_currencyCache.TryGetValue(chatId, out var cached))
+            return cached;
+
         var settings = await GetOrCreateBotSettingsAsync(chatId);
-        return string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
+        var currency = string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
+        _currencyCache[chatId] = currency;
+        return currency;
     }
 
     public async Task<(string Message, bool Converted)> SetCurrencyAsync(long chatId, string currency, NbrbRateService rateService)
@@ -405,6 +412,7 @@ $"""
 
         settings.Currency = currency;
         await _db.SaveChangesAsync();
+        _currencyCache[chatId] = currency;
 
         var sym = SalaryService.GetCurrencySymbol(currency);
         return ($"✅ Валюта: {sym} ({currency})\nКонвертировано {converted} записей по курсу: 1 {oldCurrency} = {toRate / fromRate:N4} {currency}", true);

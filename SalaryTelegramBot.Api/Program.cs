@@ -96,31 +96,27 @@ var app = builder.Build();
 
 try
 {
-    using (var scope = app.Services.CreateScope())
+    for (int i = 0; i < 3; i++)
     {
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        db.Database.SetCommandTimeout(60);
-
-        for (int i = 0; i < 3; i++)
+        try
         {
-            try
-            {
-                db.Database.Migrate();
-                break;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Migration attempt {i + 1} failed: {ex.Message}");
-                if (i == 2) throw;
-                await Task.Delay(2000);
-                db.Dispose();
-                db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                db.Database.SetCommandTimeout(60);
-            }
-        }
+            using var dbScope = app.Services.CreateScope();
+            var db = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Database.SetCommandTimeout(60);
+            db.Database.Migrate();
 
-        await SeedData.SeedAsync(db);
-        Console.WriteLine("Database ready.");
+            using var seedScope = app.Services.CreateScope();
+            var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await SeedData.SeedAsync(seedDb);
+            Console.WriteLine("Database ready.");
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Migration attempt {i + 1} failed: {ex.Message}");
+            if (i == 2) throw;
+            await Task.Delay(3000);
+        }
     }
 
     var botToken = builder.Configuration["Telegram:Token"]
