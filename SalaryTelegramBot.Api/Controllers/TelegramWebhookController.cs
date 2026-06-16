@@ -1,5 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
-using Newtonsoft.Json;
 using SalaryTelegramBot.Api.Services;
 using Telegram.Bot.Types;
 
@@ -8,6 +9,12 @@ namespace SalaryTelegramBot.Api.Controllers;
 [Route("webhook")]
 public class TelegramWebhookController : ControllerBase
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString
+    };
+
     private readonly TelegramBotService _handler;
     private readonly ILogger<TelegramWebhookController> _logger;
 
@@ -27,7 +34,7 @@ public class TelegramWebhookController : ControllerBase
 
             _logger.LogInformation("Webhook received raw JSON ({Len} bytes)", raw.Length);
 
-            var update = JsonConvert.DeserializeObject<Update>(raw);
+            var update = JsonSerializer.Deserialize<Update>(raw, JsonOptions);
             if (update is null)
             {
                 _logger.LogWarning("Failed to deserialize update");
