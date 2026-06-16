@@ -1,6 +1,7 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
 using SalaryTelegramBot.Api.Services;
 using Telegram.Bot.Types;
 
@@ -9,10 +10,10 @@ namespace SalaryTelegramBot.Api.Controllers;
 [Route("webhook")]
 public class TelegramWebhookController : ControllerBase
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializer Serializer = new()
     {
-        PropertyNameCaseInsensitive = true,
-        NumberHandling = JsonNumberHandling.AllowReadingFromString
+        ContractResolver = new CamelCasePropertyNamesContractResolver(),
+        Converters = { new Newtonsoft.Json.Converters.UnixDateTimeConverter() }
     };
 
     private readonly TelegramBotService _handler;
@@ -31,13 +32,25 @@ public class TelegramWebhookController : ControllerBase
         {
             using var reader = new StreamReader(Request.Body);
             var raw = await reader.ReadToEndAsync(ct);
+            var json = JObject.Parse(raw);
 
-            _logger.LogInformation("Webhook received raw JSON ({Len} bytes)", raw.Length);
+            _logger.LogInformation("Webhook received {Len} bytes, keys: {Keys}",
+                raw.Length, string.Join(",", json.Properties().Select(p => p.Name)));
 
-            var update = JsonSerializer.Deserialize<Update>(raw, JsonOptions);
+            Update? update = null;
+
+            if (json["message"] is not null)
+                update = json["message"]!.ToObject<Message>(Serializer) is { } msg
+                    ? new Update { Id = json["update_id"]!.Value<int>(), Message = msg }
+                    : null;
+            else if (json["callback_query"] is not null)
+                update = json["callback_query"]!.ToObject<CallbackQuery>(Serializer) is { } cq
+                    ? new Update { Id = json["update_id"]!.Value<int>(), CallbackQuery = cq }
+                    : null;
+
             if (update is null)
             {
-                _logger.LogWarning("Failed to deserialize update");
+                _logger.LogWarning("Could not parse update");
                 return Ok();
             }
 
