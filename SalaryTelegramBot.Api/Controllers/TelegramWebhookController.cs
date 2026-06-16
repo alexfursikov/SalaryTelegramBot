@@ -20,13 +20,24 @@ public class TelegramWebhookController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Post([FromBody] JsonElement body, CancellationToken ct)
     {
-        var update = body.Deserialize<Update>();
-        if (update is null)
-            return Ok();
+        try
+        {
+            var update = body.Deserialize<Update>();
+            if (update is null)
+            {
+                _logger.LogWarning("Failed to deserialize update");
+                return Ok();
+            }
 
-        _logger.LogInformation("Webhook received update {Id}", update.Id);
-        await _handler.HandleUpdateAsync(update, ct);
-        return Ok();
+            _logger.LogInformation("Webhook received update {Id}, type={Type}", update.Id, update.Type);
+            await _handler.HandleUpdateAsync(update, ct);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing webhook update");
+            return Ok();
+        }
     }
 
     [HttpGet]
