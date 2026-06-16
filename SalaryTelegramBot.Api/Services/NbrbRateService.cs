@@ -19,32 +19,30 @@ public class NbrbRateService
         if (currency == "BYN")
             return 1m;
 
-        var curId = currency switch
-        {
-            "USD" => 431,
-            "EUR" => 451,
-            "RUB" => 456,
-            _ => 0
-        };
-
-        if (curId == 0)
-            return null;
-
         try
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
             var response = await _http.GetAsync(
-                $"https://www.nbrb.by/api/exrates/rates/{curId}?format=json", cts.Token);
+                "https://open.er-api.com/v6/latest/BYN", cts.Token);
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync(cts.Token);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            var rate = root.GetProperty("Cur_OfficialRate").GetDecimal();
-            var scale = root.GetProperty("Cur_Scale").GetInt32();
+            var rates = root.GetProperty("rates");
+            if (rates.TryGetProperty(currency, out var rateElement))
+            {
+                var ratePerByn = rateElement.GetDecimal();
+                if (ratePerByn > 0)
+                {
+                    var result = 1m / ratePerByn;
+                    _logger.LogInformation("Rate for {Currency}: {Rate} BYN", currency, result);
+                    return result;
+                }
+            }
 
-            _logger.LogInformation("НБ РБ rate for {Currency}: {Rate} per {Scale}", currency, rate, scale);
-            return rate / scale;
+            _logger.LogWarning("Currency {Currency} not found in rates", currency);
+            return null;
         }
         catch (Exception ex)
         {

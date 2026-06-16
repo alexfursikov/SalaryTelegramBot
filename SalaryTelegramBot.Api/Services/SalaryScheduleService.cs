@@ -402,6 +402,6 @@ $"""
         await _db.SaveChangesAsync();
 
         var sym = SalaryService.GetCurrencySymbol(currency);
-        return ($"✅ Валюта: {sym} ({currency})\nКонвертировано {converted} записей по курсу НБ РБ: 1 {oldCurrency} = {toRate / fromRate:N4} {currency}", true);
+        return ($"✅ Валюта: {sym} ({currency})\nКонвертировано {converted} записей по курсу: 1 {oldCurrency} = {toRate / fromRate:N4} {currency}", true);
     }
 }
