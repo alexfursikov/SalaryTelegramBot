@@ -3,6 +3,7 @@ using Npgsql;
 using SalaryTelegramBot.Api.Configuration;
 using SalaryTelegramBot.Api.Data;
 using SalaryTelegramBot.Api.Services;
+using Telegram.Bot;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,7 +63,6 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         Timeout = 30
     };
     connectionString = pgBuilder.ConnectionString;
-    Console.WriteLine($"DB user: {username}, host: {host}:{port}, db: {database}");
 }
 
 builder.Services.AddDbContext<AppDbContext>(x =>
@@ -72,13 +72,12 @@ builder.Services.AddDbContext<AppDbContext>(x =>
         o.EnableRetryOnFailure(3);
     }));
 
-builder.Services.AddScoped<SalaryService>();
-builder.Services.AddScoped<SalaryScheduleService>();
-
+builder.Services.AddControllers();
+builder.Services.AddSingleton<TelegramBotService>();
 builder.Services.AddSingleton<BotStateService>();
 builder.Services.AddSingleton<RateLimiter>();
-
-builder.Services.AddHostedService<TelegramBotService>();
+builder.Services.AddScoped<SalaryService>();
+builder.Services.AddScoped<SalaryScheduleService>();
 builder.Services.AddHostedService<SchedulerService>();
 
 var app = builder.Build();
@@ -88,15 +87,33 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Console.WriteLine("Applying migrations...");
         db.Database.SetCommandTimeout(60);
         db.Database.Migrate();
-        Console.WriteLine("Seeding data...");
         await SeedData.SeedAsync(db);
         Console.WriteLine("Database ready.");
     }
 
-    Console.WriteLine("Starting bot...");
+    var botToken = builder.Configuration["Telegram:Token"]
+        ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
+        ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
+        ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+
+    if (!string.IsNullOrWhiteSpace(botToken))
+    {
+        var bot = new TelegramBotClient(botToken);
+        var baseUrl = Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL")
+            ?? "https://salarytelegrambot.onrender.com";
+        var webhookUrl = $"{baseUrl}/webhook";
+
+        Console.WriteLine($"Setting webhook to {webhookUrl}");
+        await bot.SetWebhook(
+            webhookUrl,
+            allowedUpdates: [],
+            dropPendingUpdates: true);
+        Console.WriteLine("Webhook set successfully.");
+    }
+
+    app.MapControllers();
     app.Run();
 }
 catch (Exception ex)

@@ -9,7 +9,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace SalaryTelegramBot.Api.Services;
 
-public class TelegramBotService : BackgroundService
+public class TelegramBotService
 {
     private static readonly string[] AcceptedDateFormats = ["dd.MM.yyyy", "d.M.yyyy", "yyyy-MM-dd"];
     private const string CbStatus = "menu:status";
@@ -31,7 +31,6 @@ public class TelegramBotService : BackgroundService
     private readonly BotStateService _state;
     private readonly RateLimiter _rateLimiter;
     private readonly ILogger<TelegramBotService> _logger;
-    private CancellationTokenSource? _pollingCts;
 
     public TelegramBotService(
         IServiceProvider provider,
@@ -47,77 +46,16 @@ public class TelegramBotService : BackgroundService
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(
-        CancellationToken stoppingToken)
-    {
-        var token = _config["Telegram:Token"];
-
-        if (string.IsNullOrWhiteSpace(token))
-            token = Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
-                 ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
-                 ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            _logger.LogError("Telegram bot token not configured. Set TELEGRAM__TOKEN env var.");
-            return;
-        }
-
-        _logger.LogInformation("Bot token: {Start}...{End}", token[..Math.Min(5, token.Length)], token[^4..]);
-
-        var bot = new TelegramBotClient(token);
-
-        var receiverOptions = new ReceiverOptions
-        {
-            AllowedUpdates = Array.Empty<UpdateType>()
-        };
-
-        _logger.LogInformation("Bot started, entering polling loop");
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            _pollingCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-
-            try
-            {
-                bot.StartReceiving(
-                    HandleUpdate,
-                    HandleError,
-                    receiverOptions,
-                    _pollingCts.Token);
-
-                _logger.LogInformation("Polling started, waiting...");
-
-                try
-                {
-                    await Task.Delay(Timeout.Infinite, _pollingCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    if (stoppingToken.IsCancellationRequested)
-                        break;
-
-                    _logger.LogWarning("Polling cancelled (likely conflict), restarting in 10s...");
-                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Polling error, restarting in 30s...");
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-            }
-        }
-    }
-
-    private async Task HandleUpdate(
-        ITelegramBotClient bot,
+    public async Task HandleUpdateAsync(
         Update update,
         CancellationToken token)
     {
+        var bot = new TelegramBotClient(
+            _config["Telegram:Token"]
+            ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
+            ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
+            ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")!);
+
         try
         {
             if (update.CallbackQuery is { } callbackQuery)
@@ -866,22 +804,6 @@ $"""
         }
 
         return await scheduleService.SetCheckTimeAsync(chatId, hour, minute);
-    }
-
-    private Task HandleError(
-        ITelegramBotClient bot,
-        Exception ex,
-        CancellationToken token)
-    {
-        _logger.LogError(ex, "Telegram bot error");
-
-        if (ex is Telegram.Bot.Exceptions.ApiRequestException { ErrorCode: 409 })
-        {
-            _logger.LogWarning("Conflict detected, stopping polling to restart");
-            _pollingCts?.Cancel();
-        }
-
-        return Task.CompletedTask;
     }
 
     private async Task<bool> HandlePayAmountInput(
