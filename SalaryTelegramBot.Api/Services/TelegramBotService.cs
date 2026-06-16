@@ -59,6 +59,7 @@ public class TelegramBotService
 
     public async Task HandleMessageAsync(long chatId, string text, CancellationToken token)
     {
+        if (chatId < 0) return;
         if (!_rateLimiter.IsAllowed(chatId))
             return;
 
@@ -72,6 +73,7 @@ public class TelegramBotService
 
     public async Task HandleCallbackAsync(long chatId, string data, string callbackQueryId, int messageId, CancellationToken token)
     {
+        if (chatId < 0) return;
         if (!_rateLimiter.IsAllowed(chatId))
             return;
 
@@ -111,7 +113,7 @@ public class TelegramBotService
         if (text == "Отмена")
         {
             _state.ClearAll(chatId);
-            await output("Действие отменено.", GetMainKeyboard());
+            await output("Действие отменено.", await GetMainKeyboardAsync(scheduleService, chatId));
             return;
         }
 
@@ -122,13 +124,13 @@ public class TelegramBotService
             var handled = parsed switch
             {
                 BotAwaitState.PayAmountInput => await HandlePayAmountInput(chatId, text, output),
-                BotAwaitState.PayDateInput => await HandlePayDateInput(salaryService, chatId, text, output),
+                BotAwaitState.PayDateInput => await HandlePayDateInput(salaryService, scheduleService, chatId, text, output),
                 BotAwaitState.ScheduleAddInput => await HandleScheduleAddInput(scheduleService, chatId, text, output),
                 BotAwaitState.ScheduleDelInput => await HandleScheduleDeleteInput(scheduleService, chatId, text, output),
                 BotAwaitState.ScheduleTimeInput => await HandleScheduleTimeInput(scheduleService, chatId, text, output),
                 BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
                 BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
-                BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, chatId, text, output),
+                BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
                 _ => false
             };
 
@@ -187,10 +189,11 @@ public class TelegramBotService
                 var arg = text["/calcfrom ".Length..].Trim();
                 var (day, month, year) = ParseCalculationDate(arg);
                 var result = await scheduleService.SetCalculationStartDateAsync(chatId, day, month, year);
-                await output(result, GetMainKeyboard());
+                await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Failed to parse /calcfrom argument");
                 await output("Формат: /calcfrom 15.11.2025");
             }
             return;
@@ -245,10 +248,11 @@ public class TelegramBotService
                 var arg = text["/ndflfrom ".Length..].Trim();
                 var (day, month, year) = ParseCalculationDate(arg);
                 var result = await scheduleService.SetNdflStartDateAsync(chatId, day, month, year);
-                await output(result, GetMainKeyboard());
+                await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Failed to parse /ndflfrom argument");
                 await output("Формат: /ndflfrom 01.01.2026");
             }
             return;
@@ -271,13 +275,13 @@ public class TelegramBotService
 
         if (text.StartsWith("/editamount ", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleEditPayInput(salaryService, chatId, text["/editamount ".Length..], output);
+            await HandleEditPayInput(salaryService, scheduleService, chatId, text["/editamount ".Length..], output);
             return;
         }
 
         if (text.StartsWith("/editpay ", StringComparison.OrdinalIgnoreCase))
         {
-            await HandleEditPayInput(salaryService, chatId, text["/editpay ".Length..], output);
+            await HandleEditPayInput(salaryService, scheduleService, chatId, text["/editpay ".Length..], output);
             return;
         }
 
@@ -297,8 +301,9 @@ public class TelegramBotService
                 await salaryService.AddPayment(chatId, amount, date);
                 await output("Полученная выплата сохранена");
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogWarning(ex, "Failed to parse /pay command");
                 await output("Ошибка команды");
             }
             return;
@@ -476,8 +481,9 @@ $"""
             };
             await output(resultMessage);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse /schedule command");
             await output("Ошибка команды. Проверьте формат.");
         }
     }
@@ -517,21 +523,22 @@ $"""
                 GetCancelKeyboard());
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse pay amount input");
             await output("Не смог распознать сумму. Введите только число.\n\nПримеры:\n100000\n75500",
                 GetCancelKeyboard());
             return false;
         }
     }
 
-    private async Task<bool> HandlePayDateInput(SalaryService salaryService, long chatId, string text, OutputFunc output)
+    private async Task<bool> HandlePayDateInput(SalaryService salaryService, SalaryScheduleService scheduleService, long chatId, string text, OutputFunc output)
     {
         var amount = _state.GetPendingAmount(chatId);
         if (amount is null)
         {
             _state.RemoveState(chatId);
-            await output("Сумма не найдена. Нажмите 'Выплата' снова.", GetMainKeyboard());
+            await output("Сумма не найдена. Нажмите 'Выплата' снова.", await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
 
@@ -543,11 +550,12 @@ $"""
 
             await salaryService.AddPayment(chatId, amount.Value, date);
             _state.RemovePendingAmount(chatId);
-            await output("Полученная выплата сохранена", GetMainKeyboard());
+            await output("Полученная выплата сохранена", await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse pay date input");
             await output("Не смог распознать дату.\n\nПримеры:\n30.11.2025\n2025-11-30\nсегодня", GetCancelKeyboard());
             return false;
         }
@@ -562,11 +570,12 @@ $"""
             var amount = decimal.Parse(split[1], CultureInfo.InvariantCulture);
 
             var message = await scheduleService.AddOrUpdateRuleAsync(chatId, day, amount);
-            await output(message, GetMainKeyboard());
+            await output(message, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse schedule add input");
             await output("Не смог распознать ввод.\n\nНужен формат: <день_месяца> <сумма>\n\nПример:\n23 150000", GetCancelKeyboard());
             return false;
         }
@@ -578,11 +587,12 @@ $"""
         {
             var day = int.Parse(text, CultureInfo.InvariantCulture);
             var message = await scheduleService.RemoveRuleAsync(chatId, day);
-            await output(message, GetMainKeyboard());
+            await output(message, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse schedule delete input");
             await output("Не смог распознать ввод.\n\nВведите только день месяца (число от 1 до 31).\n\nПример:\n23", GetCancelKeyboard());
             return false;
         }
@@ -593,11 +603,12 @@ $"""
         try
         {
             var message = await SetTimeFromCommand(scheduleService, chatId, text);
-            await output(message, GetMainKeyboard());
+            await output(message, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse schedule time input");
             await output("Не смог распознать время.\n\nФормат: ЧЧ:ММ (24 часа)\nПримеры:\n12:00\n00:05", GetCancelKeyboard());
             return false;
         }
@@ -609,11 +620,12 @@ $"""
         {
             var (day, month, year) = ParseCalculationDate(text);
             var result = await scheduleService.SetCalculationStartDateAsync(chatId, day, month, year);
-            await output(result, GetMainKeyboard());
+            await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse calculation month input");
             await output("Не смог распознать дату.\n\nМожно так:\n15.11.2025\n11.2025", GetCancelKeyboard());
             return false;
         }
@@ -625,17 +637,18 @@ $"""
         {
             var (day, month, year) = ParseCalculationDate(text);
             var result = await scheduleService.SetNdflStartDateAsync(chatId, day, month, year);
-            await output(result, GetMainKeyboard());
+            await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse NDFL date input");
             await output("Не смог распознать дату старта НДФЛ.\n\nМожно так:\n01.01.2026\n01.2026", GetCancelKeyboard());
             return false;
         }
     }
 
-    private async Task<bool> HandleEditPayInput(SalaryService salaryService, long chatId, string text, OutputFunc output)
+    private async Task<bool> HandleEditPayInput(SalaryService salaryService, SalaryScheduleService scheduleService, long chatId, string text, OutputFunc output)
     {
         try
         {
@@ -648,11 +661,12 @@ $"""
             var editReceivedPayment = parts.Length >= 3 &&
                                       parts[2].Equals("получил", StringComparison.OrdinalIgnoreCase);
             var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editReceivedPayment);
-            await output(result, GetMainKeyboard());
+            await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse edit pay input");
             await output("Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000\n30.11.2025 85000 получил", GetCancelKeyboard());
             return false;
         }

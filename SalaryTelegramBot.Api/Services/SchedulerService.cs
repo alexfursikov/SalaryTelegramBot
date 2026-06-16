@@ -32,6 +32,17 @@ public class SchedulerService : BackgroundService
                 _logger.LogError(ex, "Error during scheduled accrual check");
             }
 
+            try
+            {
+                using var scope = _provider.CreateScope();
+                var reminderService = scope.ServiceProvider.GetRequiredService<ReminderService>();
+                await reminderService.CheckAndSendRemindersAsync(stoppingToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during reminder check");
+            }
+
             var now = DateTime.Now;
             var nextRun = now.Date.AddDays(1).AddSeconds(5);
             await Task.Delay(nextRun - now, stoppingToken);

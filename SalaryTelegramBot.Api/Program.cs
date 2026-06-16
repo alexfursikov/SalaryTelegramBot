@@ -79,7 +79,15 @@ builder.Services.AddSingleton<RateLimiter>();
 builder.Services.AddHttpClient<NbrbRateService>();
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
+builder.Services.AddScoped<ReminderService>();
 builder.Services.AddHostedService<SchedulerService>();
+
+var botTokenForDi = builder.Configuration["Telegram:Token"]
+    ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
+    ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
+    ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+if (!string.IsNullOrWhiteSpace(botTokenForDi))
+    builder.Services.AddSingleton(new Telegram.Bot.TelegramBotClient(botTokenForDi));
 
 var app = builder.Build();
 
