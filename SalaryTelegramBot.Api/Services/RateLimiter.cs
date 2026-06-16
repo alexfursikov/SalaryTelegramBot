@@ -4,18 +4,18 @@ namespace SalaryTelegramBot.Api.Services;
 
 public class RateLimiter
 {
-    private static readonly ConcurrentDictionary<long, DateTime> LastCommandTime = new();
+    private readonly ConcurrentDictionary<long, DateTime> _lastCommandTime = new();
     private static readonly TimeSpan Cooldown = TimeSpan.FromSeconds(1);
 
     public bool IsAllowed(long chatId)
     {
         var now = DateTime.UtcNow;
-        var last = LastCommandTime.AddOrUpdate(chatId, now, (_, _) => now);
 
-        if (now - last < Cooldown)
-            return false;
+        var last = _lastCommandTime.AddOrUpdate(
+            chatId,
+            now,
+            (_, existing) => now - existing >= Cooldown ? now : existing);
 
-        LastCommandTime[chatId] = now;
-        return true;
+        return _lastCommandTime.TryGetValue(chatId, out var stored) && stored == now;
     }
 }

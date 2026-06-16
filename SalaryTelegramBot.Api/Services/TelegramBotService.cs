@@ -78,7 +78,7 @@ public class TelegramBotService
             var text = update.Message.Text.Trim();
             var chatId = update.Message.Chat.Id;
 
-            _logger.LogInformation("Message from {ChatId}: {Text}", chatId, text);
+            _logger.LogInformation("Message from {ChatId}: {Text}, ct={Ct}", chatId, text, token.IsCancellationRequested);
 
             if (!_rateLimiter.IsAllowed(chatId))
                 return;
