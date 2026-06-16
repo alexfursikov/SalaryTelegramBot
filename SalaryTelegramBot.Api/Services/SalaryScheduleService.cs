@@ -11,7 +11,7 @@ public class SalaryScheduleService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _defaultSettings;
-    private static readonly ConcurrentDictionary<long, string> _currencyCache = new();
+    private static readonly ConcurrentDictionary<long, BotSettings> _settingsCache = new();
     private static readonly HashSet<long> _seededChats = new();
 
     public SalaryScheduleService(AppDbContext db, IOptions<SalarySettings> options)
@@ -113,6 +113,7 @@ public class SalaryScheduleService
         settings.CalculationStartMonth = month;
         settings.CalculationStartYear = year;
         await _db.SaveChangesAsync();
+        _settingsCache.TryRemove(chatId, out _);
 
         return $"Период расчета установлен: с {startDate:dd.MM.yyyy}.";
     }
@@ -155,6 +156,7 @@ public class SalaryScheduleService
         settings.NdflStartMonth = month;
         settings.NdflStartYear = year;
         await _db.SaveChangesAsync();
+        _settingsCache.TryRemove(chatId, out _);
 
         return $"Дата старта НДФЛ: с {startDate:dd.MM.yyyy}.";
     }
@@ -234,6 +236,7 @@ $"""
         settings.CheckHour = hour;
         settings.CheckMinute = minute;
         await _db.SaveChangesAsync();
+        _settingsCache.TryRemove(chatId, out _);
 
         return $"Время проверки: {hour:D2}:{minute:D2}";
     }
@@ -243,6 +246,7 @@ $"""
         var settings = await GetOrCreateBotSettingsAsync(chatId);
         settings.IsNdflEnabled = !settings.IsNdflEnabled;
         await _db.SaveChangesAsync();
+        _settingsCache.TryRemove(chatId, out _);
         return $"НДФЛ: {(settings.IsNdflEnabled ? "включен" : "выключен")}.";
     }
 
@@ -337,21 +341,26 @@ $"""
 
     private async Task<BotSettings> GetOrCreateBotSettingsAsync(long chatId)
     {
+        if (_settingsCache.TryGetValue(chatId, out var cached))
+            return cached;
+
         var settings = await _db.BotSettings
             .FirstOrDefaultAsync(x => x.ChatId == chatId);
 
-        if (settings is not null)
-            return settings;
-
-        settings = new BotSettings
+        if (settings is null)
         {
-            ChatId = chatId,
-            CheckHour = _defaultSettings.CheckHour,
-            CheckMinute = _defaultSettings.CheckMinute,
-            IsNdflEnabled = false
-        };
-        _db.BotSettings.Add(settings);
-        await _db.SaveChangesAsync();
+            settings = new BotSettings
+            {
+                ChatId = chatId,
+                CheckHour = _defaultSettings.CheckHour,
+                CheckMinute = _defaultSettings.CheckMinute,
+                IsNdflEnabled = false
+            };
+            _db.BotSettings.Add(settings);
+            await _db.SaveChangesAsync();
+        }
+
+        _settingsCache[chatId] = settings;
         return settings;
     }
 
@@ -369,13 +378,8 @@ $"""
 
     public async Task<string> GetCurrencyAsync(long chatId)
     {
-        if (_currencyCache.TryGetValue(chatId, out var cached))
-            return cached;
-
         var settings = await GetOrCreateBotSettingsAsync(chatId);
-        var currency = string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
-        _currencyCache[chatId] = currency;
-        return currency;
+        return string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
     }
 
     public async Task<(string Message, bool Converted)> SetCurrencyAsync(long chatId, string currency, NbrbRateService rateService)
@@ -412,7 +416,7 @@ $"""
 
         settings.Currency = currency;
         await _db.SaveChangesAsync();
-        _currencyCache[chatId] = currency;
+        _settingsCache[chatId] = settings;
 
         var sym = SalaryService.GetCurrencySymbol(currency);
         return ($"✅ Валюта: {sym} ({currency})\nКонвертировано {converted} записей по курсу: 1 {oldCurrency} = {toRate / fromRate:N4} {currency}", true);

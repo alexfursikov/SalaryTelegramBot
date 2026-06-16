@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SalaryTelegramBot.Api.Configuration;
@@ -11,6 +12,7 @@ public class SalaryService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _salarySettings;
+    private static readonly ConcurrentDictionary<long, Models.BotSettings> _settingsCache = new();
 
     public SalaryService(AppDbContext db, IOptions<SalarySettings> salaryOptions)
     {
@@ -441,10 +443,23 @@ $"""
         sb.AppendLine();
     }
 
-    private async Task<DateTime?> GetCalculationStartDate(long chatId)
+    private async Task<Models.BotSettings> GetSettingsCachedAsync(long chatId)
     {
+        if (_settingsCache.TryGetValue(chatId, out var cached))
+            return cached;
+
         var settings = await _db.BotSettings
             .FirstOrDefaultAsync(x => x.ChatId == chatId);
+
+        if (settings is not null)
+            _settingsCache[chatId] = settings;
+
+        return settings;
+    }
+
+    private async Task<DateTime?> GetCalculationStartDate(long chatId)
+    {
+        var settings = await GetSettingsCachedAsync(chatId);
 
         if (settings?.CalculationStartYear is null || settings.CalculationStartMonth is null)
             return null;
@@ -462,18 +477,13 @@ $"""
 
     private async Task<bool> IsNdflEnabled(long chatId)
     {
-        var settings = await _db.BotSettings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ChatId == chatId);
-
+        var settings = await GetSettingsCachedAsync(chatId);
         return settings?.IsNdflEnabled ?? true;
     }
 
     private async Task<DateTime?> GetNdflStartDate(long chatId)
     {
-        var settings = await _db.BotSettings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.ChatId == chatId);
+        var settings = await GetSettingsCachedAsync(chatId);
 
         if (settings?.NdflStartYear is null || settings.NdflStartMonth is null)
             return null;
