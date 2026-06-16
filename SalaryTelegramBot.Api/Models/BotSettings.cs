@@ -23,4 +23,6 @@ public class BotSettings
     public int? CalculationStartYear { get; set; }
 
     public int? CalculationStartDay { get; set; }
+
+    public string Currency { get; set; } = "RUB";
 }

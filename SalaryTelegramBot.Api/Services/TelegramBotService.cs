@@ -26,6 +26,10 @@ public class TelegramBotService
     private const string CbNdflFrom = "menu:ndflfrom";
     private const string CbEditAmount = "menu:editamount";
     private const string CbMain = "menu:main";
+    private const string CbCurrency = "menu:currency";
+    private const string CbCurrencySet = "menu:currencysymbol";
+    private static readonly (string Code, string Flag, string Name)[] Currencies =
+        [("USD", "\U0001f1fa\U0001f1f8", "Доллар"), ("EUR", "\U0001f1ea\U0001f1fa", "Евро"), ("RUB", "\U0001f1f7\U0001f1fa", "Рос. рубль"), ("BYN", "\U0001f1e7\U0001f1fe", "Бел. рубль")];
     private readonly IServiceProvider _provider;
     private readonly IConfiguration _config;
     private readonly BotStateService _state;
@@ -300,17 +304,18 @@ public class TelegramBotService
 
         await scheduleService.EnsureSeededForChatAsync(chatId);
 
-        async Task Edit(string text, InlineKeyboardMarkup? keyboard = null)
+        async Task Edit(string text, InlineKeyboardMarkup? keyboard = null, ParseMode parseMode = ParseMode.None)
         {
             try
             {
                 await bot.EditMessageText(chatId, messageId, text,
-                    replyMarkup: keyboard, cancellationToken: token);
+                    replyMarkup: keyboard, parseMode: parseMode, cancellationToken: token);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to edit message, sending new one");
-                await bot.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: token);
+                await bot.SendMessage(chatId, text, replyMarkup: keyboard,
+                    parseMode: parseMode, cancellationToken: token);
             }
         }
 
@@ -326,7 +331,7 @@ public class TelegramBotService
             case CbHistory:
                 var history = await salaryService.GetHistory(chatId);
                 await Edit($"<pre>{WebUtility.HtmlEncode(history)}</pre>",
-                    await GetMainKeyboardAsync(scheduleService, chatId));
+                    await GetMainKeyboardAsync(scheduleService, chatId), ParseMode.Html);
                 break;
             case CbPay:
                 _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
@@ -372,7 +377,23 @@ public class TelegramBotService
                 _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
                 await Edit("✏️ Формат: <дата> <сумма> [получил]", GetBackKeyboard(CbSettings));
                 break;
+            case CbCurrency:
+                var currentCurrency = await scheduleService.GetCurrencyAsync(chatId);
+                var currButtons = Currencies.Select(c =>
+                    c.Code == currentCurrency
+                        ? InlineKeyboardButton.WithCallbackData($"{c.Flag} {c.Name} ✓", $"{CbCurrencySet}:{c.Code}")
+                        : InlineKeyboardButton.WithCallbackData($"{c.Flag} {c.Name}", $"{CbCurrencySet}:{c.Code}")
+                ).ToList();
+                await Edit("Выберите валюту:", new InlineKeyboardMarkup([currButtons, [InlineKeyboardButton.WithCallbackData("⬅️ Назад", CbMain)]]));
+                break;
             default:
+                if (data.StartsWith(CbCurrencySet + ":"))
+                {
+                    var code = data[(CbCurrencySet.Length + 1)..];
+                    await scheduleService.SetCurrencyAsync(chatId, code);
+                    var newFlag = Currencies.FirstOrDefault(c => c.Code == code).Flag ?? "";
+                    await Edit($"{newFlag} Валюта: {code}", await GetMainKeyboardAsync(scheduleService, chatId));
+                }
                 break;
         }
     }
@@ -1471,21 +1492,24 @@ $"""
         throw new FormatException("Invalid date format");
     }
 
-    private static InlineKeyboardMarkup GetMainKeyboard()
+    private static InlineKeyboardMarkup GetMainKeyboard() => GetMainKeyboardWithCurrency("RUB");
+
+    private static InlineKeyboardMarkup GetMainKeyboardWithCurrency(string currency = "RUB")
     {
+        var flag = Currencies.FirstOrDefault(c => c.Code == currency).Flag ?? "\U0001f1f7\U0001f1fa";
         return new InlineKeyboardMarkup(
         [
             [InlineKeyboardButton.WithCallbackData("💰 Общий долг", CbStatus), InlineKeyboardButton.WithCallbackData("📚 История долга", CbHistory)],
             [InlineKeyboardButton.WithCallbackData("💸 Учет полученной выплаты", CbPay)],
-            [InlineKeyboardButton.WithCallbackData("⚙️ Настройки", CbSettings)]
+            [InlineKeyboardButton.WithCallbackData("⚙️ Настройки", CbSettings)],
+            [InlineKeyboardButton.WithCallbackData($"{flag} Валюта: {currency}", CbCurrency)]
         ]);
     }
 
-    private Task<InlineKeyboardMarkup> GetMainKeyboardAsync(SalaryScheduleService scheduleService, long chatId)
+    private async Task<InlineKeyboardMarkup> GetMainKeyboardAsync(SalaryScheduleService scheduleService, long chatId)
     {
-        _ = scheduleService;
-        _ = chatId;
-        return Task.FromResult(GetMainKeyboard());
+        var currency = await scheduleService.GetCurrencyAsync(chatId);
+        return GetMainKeyboardWithCurrency(currency);
     }
 
     private async Task<InlineKeyboardMarkup> GetSettingsKeyboardAsync(SalaryScheduleService scheduleService, long chatId)

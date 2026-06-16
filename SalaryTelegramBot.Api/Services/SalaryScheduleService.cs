@@ -357,4 +357,18 @@ $"""
         var startDate = await GetNdflStartDateAsync(chatId);
         return startDate is null ? "с первого начисления" : $"с {startDate:dd.MM.yyyy}";
     }
+
+    public async Task<string> GetCurrencyAsync(long chatId)
+    {
+        var settings = await GetOrCreateBotSettingsAsync(chatId);
+        return string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
+    }
+
+    public async Task<string> SetCurrencyAsync(long chatId, string currency)
+    {
+        var settings = await GetOrCreateBotSettingsAsync(chatId);
+        settings.Currency = currency;
+        await _db.SaveChangesAsync();
+        return $"Валюта изменена на {currency}";
+    }
 }
