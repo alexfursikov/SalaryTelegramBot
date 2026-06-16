@@ -89,6 +89,10 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         db.Database.SetCommandTimeout(60);
+        
+        await db.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE \"BotSettings\" ADD COLUMN IF NOT EXISTS \"Currency\" text NOT NULL DEFAULT 'RUB'");
+        
         db.Database.Migrate();
         await SeedData.SeedAsync(db);
         Console.WriteLine("Database ready.");
