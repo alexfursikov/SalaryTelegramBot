@@ -46,6 +46,323 @@ public class TelegramBotService
         _logger = logger;
     }
 
+    public TelegramBotClient CreateBotClient() => new(
+        _config["Telegram:Token"]
+        ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
+        ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
+        ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")!);
+
+    public async Task HandleMessageAsync(long chatId, string text, CancellationToken token)
+    {
+        var bot = CreateBotClient();
+
+        if (!_rateLimiter.IsAllowed(chatId))
+            return;
+
+        using var scope = _provider.CreateScope();
+        var salaryService = scope.ServiceProvider.GetRequiredService<SalaryService>();
+        var scheduleService = scope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
+
+        await scheduleService.EnsureSeededForChatAsync(chatId);
+
+        if (text == "Отмена")
+        {
+            _state.ClearAll(chatId);
+            await bot.SendMessage(chatId, "Действие отменено.", replyMarkup: GetMainKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        var currentState = _state.GetState(chatId);
+        if (currentState is not null)
+        {
+            var parsed = Enum.Parse<BotAwaitState>(currentState);
+            var handled = parsed switch
+            {
+                BotAwaitState.PayAmountInput => await HandlePayAmountInput(bot, chatId, text, token),
+                BotAwaitState.PayDateInput => await HandlePayDateInput(bot, salaryService, chatId, text, token),
+                BotAwaitState.ScheduleAddInput => await HandleScheduleAddInput(bot, scheduleService, chatId, text, token),
+                BotAwaitState.ScheduleDelInput => await HandleScheduleDeleteInput(bot, scheduleService, chatId, text, token),
+                BotAwaitState.ScheduleTimeInput => await HandleScheduleTimeInput(bot, scheduleService, chatId, text, token),
+                BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(bot, scheduleService, chatId, text, token),
+                BotAwaitState.NdflFromInput => await HandleNdflFromInput(bot, scheduleService, chatId, text, token),
+                BotAwaitState.EditPayInput => await HandleEditPayInput(bot, salaryService, chatId, text, token),
+                _ => false
+            };
+
+            if (handled)
+                _state.RemoveState(chatId);
+
+            return;
+        }
+
+        if (text is "/start" or "/help")
+        {
+            await bot.SendMessage(chatId, "Этот бот помогает учитывать общий долг по зарплате:\nначисления и запрошенные частичные выплаты.\n\nВыберите действие в меню ниже.",
+                replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+            return;
+        }
+
+        if (text == "💸 Выплата")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
+            await bot.SendMessage(chatId, "💸 Учет полученной выплаты\n\nШаг 1: введите сумму.",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text == "➕ Начисление")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleAddInput));
+            await bot.SendMessage(chatId, "➕ Добавление начисления\n\nВведите: <день> <сумма>",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text == "➖ Начисление")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleDelInput));
+            await bot.SendMessage(chatId, "➖ Удаление начисления\n\nВведите день месяца.",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text == "⏰ Время начисления")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.ScheduleTimeInput));
+            await bot.SendMessage(chatId, "⏰ Время автопроверки\n\nВведите: ЧЧ:ММ",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text == "/calcfrom")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.CalculationMonthInput));
+            await bot.SendMessage(chatId, "📅 Дата начала расчета\n\nВведите: ДД.ММ.ГГГГ или ММ.ГГГГ",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text.StartsWith("/calcfrom ", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var arg = text["/calcfrom ".Length..].Trim();
+                var (day, month, year) = ParseCalculationDate(arg);
+                var result = await scheduleService.SetCalculationStartDateAsync(chatId, day, month, year);
+                await bot.SendMessage(chatId, result, replyMarkup: GetMainKeyboard(), cancellationToken: token);
+            }
+            catch
+            {
+                await bot.SendMessage(chatId, "Формат: /calcfrom 15.11.2025", cancellationToken: token);
+            }
+            return;
+        }
+
+        if (text == "/status")
+        {
+            var result = await salaryService.GetStatus(chatId);
+            await bot.SendMessage(chatId, result, cancellationToken: token);
+            return;
+        }
+
+        if (text == "/users")
+        {
+            var adminIds = _config.GetSection("Telegram:AdminUserIds").Get<long[]>() ?? [];
+            if (!adminIds.Contains(chatId))
+            {
+                await bot.SendMessage(chatId, "Нет доступа.", cancellationToken: token);
+                return;
+            }
+            var count = await salaryService.GetUserCount();
+            await bot.SendMessage(chatId, $"Пользователей: {count}", cancellationToken: token);
+            return;
+        }
+
+        if (text == "/recalc")
+        {
+            var result = await scheduleService.RecalculateAccrualsAsync(chatId, salaryService);
+            await bot.SendMessage(chatId, result, cancellationToken: token);
+            return;
+        }
+
+        if (text == "/ndflflag")
+        {
+            var result = await scheduleService.ToggleNdflAsync(chatId);
+            await bot.SendMessage(chatId, result, cancellationToken: token);
+            return;
+        }
+
+        if (text == "/ndflfrom")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.NdflFromInput));
+            await bot.SendMessage(chatId, "📌 Дата начала НДФЛ\n\nВведите: ДД.ММ.ГГГГ",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text.StartsWith("/ndflfrom ", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var arg = text["/ndflfrom ".Length..].Trim();
+                var (day, month, year) = ParseCalculationDate(arg);
+                var result = await scheduleService.SetNdflStartDateAsync(chatId, day, month, year);
+                await bot.SendMessage(chatId, result, replyMarkup: GetMainKeyboard(), cancellationToken: token);
+            }
+            catch
+            {
+                await bot.SendMessage(chatId, "Формат: /ndflfrom 01.01.2026", cancellationToken: token);
+            }
+            return;
+        }
+
+        if (text == "/history")
+        {
+            var result = await salaryService.GetHistory(chatId);
+            await bot.SendMessage(chatId, $"<pre>{WebUtility.HtmlEncode(result)}</pre>",
+                parseMode: ParseMode.Html, cancellationToken: token);
+            return;
+        }
+
+        if (text == "/editamount" || text == "/editpay")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
+            await bot.SendMessage(chatId, "✏️ Формат: <дата> <сумма> [получил]",
+                replyMarkup: GetCancelKeyboard(), cancellationToken: token);
+            return;
+        }
+
+        if (text.StartsWith("/editamount ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleEditPayInput(bot, salaryService, chatId, text["/editamount ".Length..], token);
+            return;
+        }
+
+        if (text.StartsWith("/editpay ", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleEditPayInput(bot, salaryService, chatId, text["/editpay ".Length..], token);
+            return;
+        }
+
+        if (text.StartsWith("/schedule"))
+        {
+            await HandleScheduleCommand(bot, chatId, scheduleService, text, token);
+            return;
+        }
+
+        if (text.StartsWith("/pay"))
+        {
+            try
+            {
+                var split = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                decimal amount = decimal.Parse(split[1], CultureInfo.InvariantCulture);
+                DateTime date = split.Length >= 3 ? ParseUserDate(split[2]) : DateTime.Now;
+                await salaryService.AddPayment(chatId, amount, date);
+                await bot.SendMessage(chatId, "Полученная выплата сохранена", cancellationToken: token);
+            }
+            catch
+            {
+                await bot.SendMessage(chatId, "Ошибка команды", cancellationToken: token);
+            }
+            return;
+        }
+
+        var unknownText = text switch
+        {
+            "📊 Статус" => "/status",
+            "📜 История" => "/history",
+            "🗓️ Расписание" => "/schedule",
+            "📅 Дата расчета" => "/calcfrom",
+            "🔄 Пересчитать" => "/recalc",
+            "🏷️ Флаг НДФЛ" => "/ndflflag",
+            "📌 Дата НДФЛ" => "/ndflfrom",
+            "✏️ Изменить сумму" => "/editamount",
+            _ => null
+        };
+
+        if (unknownText is not null)
+        {
+            await HandleMessageAsync(chatId, unknownText, token);
+            return;
+        }
+    }
+
+    public async Task HandleCallbackAsync(long chatId, string data, string callbackQueryId, CancellationToken token)
+    {
+        var bot = CreateBotClient();
+
+        if (!_rateLimiter.IsAllowed(chatId))
+            return;
+
+        using var scope = _provider.CreateScope();
+        var salaryService = scope.ServiceProvider.GetRequiredService<SalaryService>();
+        var scheduleService = scope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
+
+        await scheduleService.EnsureSeededForChatAsync(chatId);
+
+        switch (data)
+        {
+            case CbMain:
+                await bot.SendMessage(chatId, "Выберите действие:", replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbStatus:
+                var status = await salaryService.GetStatus(chatId);
+                await bot.SendMessage(chatId, status, replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbHistory:
+                var history = await salaryService.GetHistory(chatId);
+                await bot.SendMessage(chatId, $"<pre>{WebUtility.HtmlEncode(history)}</pre>",
+                    parseMode: ParseMode.Html, replyMarkup: await GetMainKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbPay:
+                _state.SetState(chatId, nameof(BotAwaitState.PayAmountInput));
+                await bot.SendMessage(chatId, "💸 Введите сумму выплаты:", replyMarkup: GetBackKeyboard(CbMain), cancellationToken: token);
+                break;
+            case CbSettings:
+                var settingsText = await BuildSettingsSummaryAsync(scheduleService, chatId);
+                await bot.SendMessage(chatId, settingsText, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbSchedule:
+                var schedule = await scheduleService.FormatScheduleAsync(chatId);
+                await bot.SendMessage(chatId, schedule, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbScheduleAdd:
+                _state.SetState(chatId, nameof(BotAwaitState.ScheduleAddInput));
+                await bot.SendMessage(chatId, "➕ Введите: <день> <сумма>", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            case CbScheduleDel:
+                _state.SetState(chatId, nameof(BotAwaitState.ScheduleDelInput));
+                await bot.SendMessage(chatId, "➖ Введите день месяца:", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            case CbScheduleTime:
+                _state.SetState(chatId, nameof(BotAwaitState.ScheduleTimeInput));
+                await bot.SendMessage(chatId, "⏰ Введите время (ЧЧ:ММ):", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            case CbCalcFrom:
+                _state.SetState(chatId, nameof(BotAwaitState.CalculationMonthInput));
+                await bot.SendMessage(chatId, "📅 Введите дату (ДД.ММ.ГГГГ):", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            case CbRecalc:
+                var recalc = await scheduleService.RecalculateAccrualsAsync(chatId, salaryService);
+                await bot.SendMessage(chatId, recalc, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbNdflFlag:
+                var ndfl = await scheduleService.ToggleNdflAsync(chatId);
+                await bot.SendMessage(chatId, ndfl, replyMarkup: await GetSettingsKeyboardAsync(scheduleService, chatId), cancellationToken: token);
+                break;
+            case CbNdflFrom:
+                _state.SetState(chatId, nameof(BotAwaitState.NdflFromInput));
+                await bot.SendMessage(chatId, "📌 Введите дату старта НДФЛ:", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            case CbEditAmount:
+                _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
+                await bot.SendMessage(chatId, "✏️ Формат: <дата> <сумма> [получил]", replyMarkup: GetBackKeyboard(CbSettings), cancellationToken: token);
+                break;
+            default:
+                break;
+        }
+    }
+
     public async Task HandleUpdateAsync(
         Update update,
         CancellationToken token)
