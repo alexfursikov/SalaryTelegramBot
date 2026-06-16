@@ -58,10 +58,7 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         Username = username,
         Password = password,
         SslMode = SslMode.Require,
-        Pooling = true,
-        MinPoolSize = 1,
-        MaxPoolSize = 5,
-        ConnectionIdleLifetime = 300,
+        Pooling = false,
         CommandTimeout = 60,
         Timeout = 30
     };
