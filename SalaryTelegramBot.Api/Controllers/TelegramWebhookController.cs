@@ -1,5 +1,5 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
 using SalaryTelegramBot.Api.Services;
 using Telegram.Bot.Types;
 
@@ -18,18 +18,23 @@ public class TelegramWebhookController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Post([FromBody] JsonElement body, CancellationToken ct)
+    public async Task<IActionResult> Post(CancellationToken ct)
     {
         try
         {
-            var update = body.Deserialize<Update>();
+            using var reader = new StreamReader(Request.Body);
+            var raw = await reader.ReadToEndAsync(ct);
+
+            _logger.LogInformation("Webhook received raw JSON ({Len} bytes)", raw.Length);
+
+            var update = JsonConvert.DeserializeObject<Update>(raw);
             if (update is null)
             {
                 _logger.LogWarning("Failed to deserialize update");
                 return Ok();
             }
 
-            _logger.LogInformation("Webhook received update {Id}, type={Type}", update.Id, update.Type);
+            _logger.LogInformation("Parsed update {Id}, type={Type}", update.Id, update.Type);
             await _handler.HandleUpdateAsync(update, ct);
             return Ok();
         }
