@@ -22,7 +22,7 @@ public class SalaryScheduleService
 
     public async Task EnsureSeededForChatAsync(long chatId)
     {
-        if (_seededChats.Contains(chatId))
+        if (_settingsCache.ContainsKey(chatId) && _seededChats.Contains(chatId))
             return;
 
         if (!await _db.BotSettings.AnyAsync(x => x.ChatId == chatId))
@@ -54,6 +54,13 @@ public class SalaryScheduleService
 
         await _db.SaveChangesAsync();
         _seededChats.Add(chatId);
+
+        if (!_settingsCache.ContainsKey(chatId))
+        {
+            var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+            if (settings is not null)
+                _settingsCache[chatId] = settings;
+        }
     }
 
     public async Task<List<AccrualRule>> GetRulesAsync(long chatId)

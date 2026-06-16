@@ -31,8 +31,11 @@ public class TelegramWebhookController : ControllerBase
             {
                 var chatId = msg.SelectToken("chat.id")?.Value<long>() ?? 0;
                 var text = msg["text"]?.Value<string>() ?? "";
-                _logger.LogInformation("Message update {Id}: chat={Chat}, text={Text}", updateId, chatId, text);
-                await _handler.HandleMessageAsync(chatId, text, ct);
+                _ = Task.Run(async () =>
+                {
+                    try { await _handler.HandleMessageAsync(chatId, text, ct); }
+                    catch (Exception ex) { _logger.LogError(ex, "Error handling message {Id}", updateId); }
+                });
             }
             else if (json["callback_query"] is JObject cq)
             {
@@ -41,8 +44,11 @@ public class TelegramWebhookController : ControllerBase
                 var data = cq["data"]?.Value<string>() ?? "";
                 var cqId = cq["id"]?.Value<string>() ?? "";
                 var messageId = cq.SelectToken("message.message_id")?.Value<int>() ?? 0;
-                _logger.LogInformation("Callback update {Id}: chat={Chat}, data={Data}", updateId, chatId, data);
-                await _handler.HandleCallbackAsync(chatId, data, cqId, messageId, ct);
+                _ = Task.Run(async () =>
+                {
+                    try { await _handler.HandleCallbackAsync(chatId, data, cqId, messageId, ct); }
+                    catch (Exception ex) { _logger.LogError(ex, "Error handling callback {Id}", updateId); }
+                });
             }
             else
             {
