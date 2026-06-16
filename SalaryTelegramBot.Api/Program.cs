@@ -103,7 +103,38 @@ try
             using var dbScope = app.Services.CreateScope();
             var db = dbScope.ServiceProvider.GetRequiredService<AppDbContext>();
             db.Database.SetCommandTimeout(60);
-            db.Database.Migrate();
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE IF NOT EXISTS \"AccrualRules\" (" +
+                "\"Id\" serial PRIMARY KEY, \"ChatId\" bigint NOT NULL, " +
+                "\"DayOfMonth\" integer NOT NULL, \"Amount\" numeric NOT NULL)");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE IF NOT EXISTS \"BotSettings\" (" +
+                "\"Id\" serial PRIMARY KEY, \"ChatId\" bigint NOT NULL, " +
+                "\"CheckHour\" integer NOT NULL DEFAULT 12, \"CheckMinute\" integer NOT NULL DEFAULT 0, " +
+                "\"IsNdflEnabled\" boolean NOT NULL DEFAULT true, " +
+                "\"NdflStartDay\" integer, \"NdflStartMonth\" integer, \"NdflStartYear\" integer, " +
+                "\"CalculationStartMonth\" integer, \"CalculationStartYear\" integer, \"CalculationStartDay\" integer, " +
+                "\"Currency\" text NOT NULL DEFAULT 'RUB')");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TABLE IF NOT EXISTS \"Transactions\" (" +
+                "\"Id\" serial PRIMARY KEY, \"ChatId\" bigint NOT NULL, " +
+                "\"Date\" timestamp with time zone NOT NULL, \"Amount\" numeric NOT NULL, " +
+                "\"Type\" integer NOT NULL, \"Comment\" text NOT NULL DEFAULT '')");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "ALTER TABLE \"BotSettings\" ADD COLUMN IF NOT EXISTS \"Currency\" text NOT NULL DEFAULT 'RUB'");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_AccrualRules_ChatId_DayOfMonth\" ON \"AccrualRules\" (\"ChatId\", \"DayOfMonth\")");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE UNIQUE INDEX IF NOT EXISTS \"IX_BotSettings_ChatId\" ON \"BotSettings\" (\"ChatId\")");
+
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE INDEX IF NOT EXISTS \"IX_Transactions_ChatId\" ON \"Transactions\" (\"ChatId\")");
 
             using var seedScope = app.Services.CreateScope();
             var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -113,7 +144,7 @@ try
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Migration attempt {i + 1} failed: {ex.Message}");
+            Console.WriteLine($"DB setup attempt {i + 1} failed: {ex.Message}");
             if (i == 2) throw;
             await Task.Delay(3000);
         }
