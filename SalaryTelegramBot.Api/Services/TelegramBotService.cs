@@ -312,6 +312,10 @@ public class TelegramBotService
                 await bot.EditMessageText(chatId, messageId, text,
                     replyMarkup: keyboard, parseMode: parseMode, cancellationToken: token);
             }
+            catch (ApiRequestException ex) when (ex.Message.Contains("message is not modified", StringComparison.OrdinalIgnoreCase))
+            {
+                // Same content, ignore
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to edit message, sending new one");
@@ -393,7 +397,8 @@ public class TelegramBotService
                 if (data.StartsWith(CbCurrencySet + ":"))
                 {
                     var code = data[(CbCurrencySet.Length + 1)..];
-                    var rateService = _provider.CreateScope().ServiceProvider.GetRequiredService<NbrbRateService>();
+                    using var rateScope = _provider.CreateScope();
+                    var rateService = rateScope.ServiceProvider.GetRequiredService<NbrbRateService>();
                     var (msg, _) = await scheduleService.SetCurrencyAsync(chatId, code, rateService);
                     var newFlag = Currencies.FirstOrDefault(c => c.Code == code).Flag ?? "";
                     await Edit($"{newFlag} {msg}", await GetMainKeyboardAsync(scheduleService, chatId));

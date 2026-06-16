@@ -10,6 +10,7 @@ public class NbrbRateService
     public NbrbRateService(HttpClient http, ILogger<NbrbRateService> logger)
     {
         _http = http;
+        _http.Timeout = TimeSpan.FromSeconds(10);
         _logger = logger;
     }
 
@@ -31,9 +32,11 @@ public class NbrbRateService
 
         try
         {
-            var response = await _http.GetAsync($"https://www.nbrb.by/api/exrates/rates/{curId}?format=json");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var response = await _http.GetAsync(
+                $"https://www.nbrb.by/api/exrates/rates/{curId}?format=json", cts.Token);
             response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(cts.Token);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -52,9 +55,10 @@ public class NbrbRateService
 
     public async Task<(decimal? FromRate, decimal? ToRate)> GetRatesAsync(string fromCurrency, string toCurrency)
     {
-        var from = await GetRateAsync(fromCurrency);
-        var to = await GetRateAsync(toCurrency);
-        return (from, to);
+        var fromTask = GetRateAsync(fromCurrency);
+        var toTask = GetRateAsync(toCurrency);
+        await Task.WhenAll(fromTask, toTask);
+        return (fromTask.Result, toTask.Result);
     }
 
     public decimal Convert(decimal amount, decimal fromRate, decimal toRate)
