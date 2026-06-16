@@ -158,11 +158,12 @@ public class SalaryScheduleService
 
         var rules = await GetRulesAsync(chatId);
         var (hour, minute) = await GetCheckTimeAsync(chatId);
+        var sym = SalaryService.GetCurrencySymbol(await GetCurrencyAsync(chatId));
 
         var lines = rules.Count == 0
             ? ["(пусто — начисления не настроены)"]
             : rules.Select(r =>
-                $"• {r.DayOfMonth}-е число (или последний день месяца) — {r.Amount:N0} ₽").ToArray();
+                $"• {r.DayOfMonth}-е число (или последний день месяца) — {r.Amount:N0} {sym}").ToArray();
 
         return
 $"""
@@ -200,7 +201,8 @@ $"""
         }
 
         await _db.SaveChangesAsync();
-        return $"Начисление {day}-го числа: {amount:N0} ₽";
+        var sym = SalaryService.GetCurrencySymbol(await GetCurrencyAsync(chatId));
+        return $"Начисление {day}-го числа: {amount:N0} {sym}";
     }
 
     public async Task<string> RemoveRuleAsync(long chatId, int day)

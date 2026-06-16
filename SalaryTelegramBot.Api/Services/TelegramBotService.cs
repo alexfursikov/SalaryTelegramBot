@@ -164,7 +164,8 @@ public class TelegramBotService
 
         if (text == "/status")
         {
-            var result = await salaryService.GetStatus(chatId);
+            var cur = await scheduleService.GetCurrencyAsync(chatId);
+            var result = await salaryService.GetStatus(chatId, cur);
             await bot.SendMessage(chatId, result, cancellationToken: token);
             return;
         }
@@ -222,7 +223,7 @@ public class TelegramBotService
 
         if (text == "/history")
         {
-            var result = await salaryService.GetHistory(chatId);
+            var result = await salaryService.GetHistory(chatId, await scheduleService.GetCurrencyAsync(chatId));
             await bot.SendMessage(chatId, $"<pre>{WebUtility.HtmlEncode(result)}</pre>",
                 parseMode: ParseMode.Html, cancellationToken: token);
             return;
@@ -325,11 +326,13 @@ public class TelegramBotService
                 await Edit("Выберите действие:", await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbStatus:
-                var status = await salaryService.GetStatus(chatId);
+                var statusCur = await scheduleService.GetCurrencyAsync(chatId);
+                var status = await salaryService.GetStatus(chatId, statusCur);
                 await Edit(status, await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbHistory:
-                var history = await salaryService.GetHistory(chatId);
+                var histCur = await scheduleService.GetCurrencyAsync(chatId);
+                var history = await salaryService.GetHistory(chatId, histCur);
                 await Edit($"<pre>{WebUtility.HtmlEncode(history)}</pre>",
                     await GetMainKeyboardAsync(scheduleService, chatId), ParseMode.Html);
                 break;
@@ -626,7 +629,7 @@ public class TelegramBotService
 
         if (text == "/status")
         {
-            var result = await salaryService.GetStatus(chatId);
+            var result = await salaryService.GetStatus(chatId, await scheduleService.GetCurrencyAsync(chatId));
 
             await bot.SendMessage(chatId, result, cancellationToken: token);
             return;
@@ -696,7 +699,7 @@ public class TelegramBotService
 
         if (text == "/history")
         {
-            var result = await salaryService.GetHistory(chatId);
+            var result = await salaryService.GetHistory(chatId, await scheduleService.GetCurrencyAsync(chatId));
 
             await bot.SendMessage(
                 chatId,
@@ -821,13 +824,13 @@ public class TelegramBotService
                 break;
             case CbStatus:
             {
-                var result = await salaryService.GetStatus(chatId);
+                var result = await salaryService.GetStatus(chatId, await scheduleService.GetCurrencyAsync(chatId));
                 await EditCallbackMessage(bot, callbackQuery, result, await GetMainKeyboardAsync(scheduleService, chatId), token);
                 break;
             }
             case CbHistory:
             {
-                var result = await salaryService.GetHistory(chatId);
+                var result = await salaryService.GetHistory(chatId, await scheduleService.GetCurrencyAsync(chatId));
                 await EditCallbackMessage(
                     bot,
                     callbackQuery,

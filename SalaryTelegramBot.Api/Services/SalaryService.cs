@@ -203,7 +203,15 @@ public class SalaryService
         return await _db.BotSettings.Select(x => x.ChatId).Distinct().CountAsync();
     }
 
-    public async Task<string> GetStatus(long chatId)
+    public static string GetCurrencySymbol(string currency) => currency switch
+    {
+        "USD" => "$",
+        "EUR" => "€",
+        "BYN" => "бел. руб.",
+        _ => "руб."
+    };
+
+    public async Task<string> GetStatus(long chatId, string currency = "RUB")
     {
         var calculationStartDate = await GetCalculationStartDate(chatId);
 
@@ -229,19 +237,20 @@ public class SalaryService
             ndfl = 0;
 
         var balance = salary + ndfl - payments;
+        var sym = GetCurrencySymbol(currency);
 
         return
 $"""
 Период: {(calculationStartDate is null ? "за все время" : $"с {calculationStartDate:dd.MM.yyyy}")}
-Начислено: {salary:N0} ₽
-Выплачено: {payments:N0} ₽
-НДФЛ: {ndfl:N0} ₽
+Начислено: {salary:N0} {sym}
+Выплачено: {payments:N0} {sym}
+НДФЛ: {ndfl:N0} {sym}
 
-Остаток: {balance:N0} ₽
+Остаток: {balance:N0} {sym}
 """;
     }
 
-    public async Task<string> GetHistory(long chatId)
+    public async Task<string> GetHistory(long chatId, string currency = "RUB")
     {
         var list = await _db.Transactions
             .Where(x => x.ChatId == chatId)
@@ -250,6 +259,8 @@ $"""
 
         if (list.Count == 0)
             return "История пока пустая.";
+
+        var sym = GetCurrencySymbol(currency);
 
         var grouped = list
             .GroupBy(x => x.Date.Date)
@@ -264,7 +275,7 @@ $"""
             .ToList();
 
         var sb = new StringBuilder();
-        sb.AppendLine("Дата       |  Начисл  | Выплата  |   НДФЛ   |  Остаток");
+        sb.AppendLine($"Дата       |  Начисл  | Выплата  |   НДФЛ   |  Остаток ({sym})");
         sb.AppendLine("-----------+----------+----------+----------+----------");
 
         decimal balance = 0;
@@ -339,11 +350,12 @@ $"""
         return sb.ToString().TrimEnd();
     }
 
-    public async Task<string> UpdateAmountByDate(long chatId, DateTime date, decimal newAmount, bool editReceivedPayment = false)
+    public async Task<string> UpdateAmountByDate(long chatId, DateTime date, decimal newAmount, bool editReceivedPayment = false, string currency = "RUB")
     {
         var normalizedDate = NormalizeToUtc(date);
         var typeToEdit = editReceivedPayment ? TransactionType.Payment : TransactionType.Salary;
         var typeLabel = editReceivedPayment ? "выплата" : "начисление";
+        var sym = GetCurrencySymbol(currency);
 
         var items = await _db.Transactions
             .Where(x => x.ChatId == chatId)
@@ -367,11 +379,11 @@ $"""
             return
 $"""
 В этот день найдено {items.Count} записей типа "{typeLabel}".
-Изменена последняя запись: {oldAmount:N0} ₽ -> {newAmount:N0} ₽.
+Изменена последняя запись: {oldAmount:N0} {sym} -> {newAmount:N0} {sym}.
 """;
         }
 
-        return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} изменена: {oldAmount:N0} ₽ -> {newAmount:N0} ₽.";
+        return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} изменена: {oldAmount:N0} {sym} -> {newAmount:N0} {sym}.";
     }
 
     private static DateTime NormalizeToUtc(DateTime date)
