@@ -10,6 +10,7 @@ public class SalaryScheduleService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _defaultSettings;
+    private static readonly HashSet<long> _seededChats = new();
 
     public SalaryScheduleService(AppDbContext db, IOptions<SalarySettings> options)
     {
@@ -19,6 +20,9 @@ public class SalaryScheduleService
 
     public async Task EnsureSeededForChatAsync(long chatId)
     {
+        if (_seededChats.Contains(chatId))
+            return;
+
         if (!await _db.BotSettings.AnyAsync(x => x.ChatId == chatId))
         {
             _db.BotSettings.Add(new BotSettings
@@ -47,6 +51,7 @@ public class SalaryScheduleService
         }
 
         await _db.SaveChangesAsync();
+        _seededChats.Add(chatId);
     }
 
     public async Task<List<AccrualRule>> GetRulesAsync(long chatId)
