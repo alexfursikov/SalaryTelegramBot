@@ -8,7 +8,6 @@ public class BotStateService : IDisposable
     private readonly string _stateFile;
     private readonly ConcurrentDictionary<long, string> _states = new();
     private readonly ConcurrentDictionary<long, decimal> _pendingAmounts = new();
-    private readonly ConcurrentDictionary<long, string> _pendingPasswords = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly Timer _saveTimer;
 
@@ -33,18 +32,10 @@ public class BotStateService : IDisposable
 
     public void RemovePendingAmount(long chatId) => _pendingAmounts.TryRemove(chatId, out _);
 
-    public string? GetPendingPassword(long chatId) =>
-        _pendingPasswords.TryGetValue(chatId, out var password) ? password : null;
-
-    public void SetPendingPassword(long chatId, string password) => _pendingPasswords[chatId] = password;
-
-    public void RemovePendingPassword(long chatId) => _pendingPasswords.TryRemove(chatId, out _);
-
     public void ClearAll(long chatId)
     {
         _states.TryRemove(chatId, out _);
         _pendingAmounts.TryRemove(chatId, out _);
-        _pendingPasswords.TryRemove(chatId, out _);
     }
 
     public void Dispose()
@@ -64,8 +55,7 @@ public class BotStateService : IDisposable
             var data = new StateData
             {
                 States = _states.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                PendingAmounts = _pendingAmounts.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value),
-                PendingPasswords = _pendingPasswords.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value)
+                PendingAmounts = _pendingAmounts.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value)
             };
 
             var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
@@ -100,10 +90,6 @@ public class BotStateService : IDisposable
                 if (long.TryParse(kv.Key, out var id))
                     _pendingAmounts[id] = kv.Value;
 
-            foreach (var kv in data.PendingPasswords)
-                if (long.TryParse(kv.Key, out var id))
-                    _pendingPasswords[id] = kv.Value;
-
             File.Delete(_stateFile);
         }
         catch
@@ -116,6 +102,5 @@ public class BotStateService : IDisposable
     {
         public Dictionary<string, string> States { get; set; } = new();
         public Dictionary<string, decimal> PendingAmounts { get; set; } = new();
-        public Dictionary<string, string> PendingPasswords { get; set; } = new();
     }
 }

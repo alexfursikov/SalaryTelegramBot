@@ -58,7 +58,7 @@ if (connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreC
         Username = username,
         Password = password,
         SslMode = SslMode.Require,
-        Pooling = false,
+        Pooling = true,
         CommandTimeout = 60,
         Timeout = 30
     };
@@ -157,16 +157,25 @@ try
     if (!string.IsNullOrWhiteSpace(botToken))
     {
         var bot = new TelegramBotClient(botToken);
-        var baseUrl = Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL")
-            ?? "https://salarytelegrambot.onrender.com";
-        var webhookUrl = $"{baseUrl}/webhook";
+        var baseUrl = Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            Console.WriteLine("RENDER_EXTERNAL_URL not set, skipping webhook registration.");
+        }
+        else
+        {
+            var webhookUrl = $"{baseUrl}/webhook";
+            var secretToken = Environment.GetEnvironmentVariable("TELEGRAM__SECRET_TOKEN")
+                ?? Environment.GetEnvironmentVariable("TELEGRAM_SECRET_TOKEN");
 
-        Console.WriteLine($"Setting webhook to {webhookUrl}");
-        await bot.SetWebhook(
-            webhookUrl,
-            allowedUpdates: [],
-            dropPendingUpdates: false);
-        Console.WriteLine("Webhook set successfully.");
+            Console.WriteLine($"Setting webhook to {webhookUrl}");
+            await bot.SetWebhook(
+                webhookUrl,
+                allowedUpdates: [],
+                dropPendingUpdates: false,
+                secretToken: secretToken);
+            Console.WriteLine("Webhook set successfully.");
+        }
     }
 
     app.MapControllers();

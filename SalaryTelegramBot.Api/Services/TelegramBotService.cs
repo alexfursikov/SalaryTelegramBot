@@ -134,9 +134,8 @@ public class TelegramBotService
             {
                 _state.ClearAll(chatId);
             }
-            else
+            else if (Enum.TryParse<BotAwaitState>(currentState, out var parsed))
             {
-                var parsed = Enum.Parse<BotAwaitState>(currentState);
                 var handled = parsed switch
                 {
                     BotAwaitState.PayAmountInput => await HandlePayAmountInput(chatId, text, output),
@@ -156,6 +155,11 @@ public class TelegramBotService
                     _state.RemoveState(chatId);
 
                 return;
+            }
+            else
+            {
+                _logger.LogWarning("Corrupt state '{State}' for chat {ChatId}, clearing", currentState, chatId);
+                _state.ClearAll(chatId);
             }
         }
 
@@ -566,6 +570,11 @@ $"""
         try
         {
             var amount = decimal.Parse(text, CultureInfo.InvariantCulture);
+            if (amount <= 0 || amount > 100_000_000m)
+            {
+                await output("Сумма должна быть от 1 до 100 000 000.\n\nПример: 75000", GetCancelKeyboard());
+                return false;
+            }
             _state.SetPendingAmount(chatId, amount);
             _state.SetState(chatId, nameof(BotAwaitState.PayDateInput));
 
@@ -619,6 +628,12 @@ $"""
             var split = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var day = int.Parse(split[0], CultureInfo.InvariantCulture);
             var amount = decimal.Parse(split[1], CultureInfo.InvariantCulture);
+
+            if (amount <= 0 || amount > 100_000_000m)
+            {
+                await output("Сумма должна быть от 1 до 100 000 000.\n\nПример: 23 75000", GetCancelKeyboard());
+                return false;
+            }
 
             var message = await scheduleService.AddOrUpdateRuleAsync(chatId, day, amount);
             await output(message, await GetMainKeyboardAsync(scheduleService, chatId));
@@ -709,6 +724,13 @@ $"""
 
             var date = ParseUserDate(parts[0]);
             var amount = decimal.Parse(parts[1], CultureInfo.InvariantCulture);
+
+            if (amount <= 0 || amount > 100_000_000m)
+            {
+                await output("Сумма должна быть от 1 до 100 000 000.", GetCancelKeyboard());
+                return false;
+            }
+
             var editReceivedPayment = parts.Length >= 3 &&
                                       parts[2].Equals("получил", StringComparison.OrdinalIgnoreCase);
             var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editReceivedPayment);
@@ -725,9 +747,9 @@ $"""
 
     private async Task<bool> HandlePasswordSetup(long chatId, string text, OutputFunc output, SalaryScheduleService scheduleService)
     {
-        if (string.IsNullOrWhiteSpace(text) || text.Length < 4)
+        if (string.IsNullOrWhiteSpace(text) || text.Length < 4 || text.Length > 128)
         {
-            await output("Пароль должен содержать минимум 4 символа. Попробуйте еще раз:", GetCancelKeyboard());
+            await output("Пароль должен содержать от 4 до 128 символов. Попробуйте еще раз:", GetCancelKeyboard());
             return false;
         }
 
@@ -762,7 +784,6 @@ $"""
         var encrypted = await salaryService.EncryptUserDataAsync(chatId, key);
 
         _state.RemoveState(chatId);
-        _state.RemovePendingPassword(chatId);
 
         await output(
             $"Пароль установлен. Зашифровано {encrypted} записей.\n\n" +

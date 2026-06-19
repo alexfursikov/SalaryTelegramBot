@@ -9,16 +9,33 @@ public class TelegramWebhookController : ControllerBase
 {
     private readonly TelegramBotService _handler;
     private readonly ILogger<TelegramWebhookController> _logger;
+    private readonly string? _secretToken;
 
-    public TelegramWebhookController(TelegramBotService handler, ILogger<TelegramWebhookController> logger)
+    public TelegramWebhookController(
+        TelegramBotService handler,
+        ILogger<TelegramWebhookController> logger,
+        IConfiguration config)
     {
         _handler = handler;
         _logger = logger;
+        _secretToken = config["Telegram:SecretToken"]
+            ?? Environment.GetEnvironmentVariable("TELEGRAM__SECRET_TOKEN")
+            ?? Environment.GetEnvironmentVariable("TELEGRAM_SECRET_TOKEN");
     }
 
     [HttpPost]
     public async Task<IActionResult> Post(CancellationToken ct)
     {
+        if (!string.IsNullOrEmpty(_secretToken))
+        {
+            if (!Request.Headers.TryGetValue("X-Telegram-Bot-Api-Secret-Token", out var token)
+                || !string.Equals(token.ToString(), _secretToken, StringComparison.Ordinal))
+            {
+                _logger.LogWarning("Invalid webhook secret token from {Ip}", HttpContext.Connection.RemoteIpAddress);
+                return Unauthorized();
+            }
+        }
+
         try
         {
             using var reader = new StreamReader(Request.Body);

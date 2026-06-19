@@ -14,7 +14,8 @@ public class SalaryScheduleService
     private readonly EncryptionService _encryption;
     private readonly UserKeyCache _keyCache;
     private static readonly ConcurrentDictionary<long, BotSettings> _settingsCache = new();
-    private static readonly HashSet<long> _seededChats = new();
+    private static readonly ConcurrentDictionary<long, byte> _seededChats = new();
+    private static readonly ConcurrentDictionary<long, SemaphoreSlim> _seedLocks = new();
 
     public SalaryScheduleService(
         AppDbContext db,
@@ -30,23 +31,30 @@ public class SalaryScheduleService
 
     public async Task EnsureSeededForChatAsync(long chatId)
     {
-        if (_settingsCache.ContainsKey(chatId) && _seededChats.Contains(chatId))
+        if (_settingsCache.ContainsKey(chatId) && _seededChats.ContainsKey(chatId))
             return;
 
-        var hasSettings = await _db.BotSettings.AnyAsync(x => x.ChatId == chatId);
-        var hasRules = await _db.AccrualRules.AnyAsync(x => x.ChatId == chatId);
-
-        if (hasSettings && hasRules)
+        var chatLock = _seedLocks.GetOrAdd(chatId, _ => new SemaphoreSlim(1, 1));
+        await chatLock.WaitAsync();
+        try
         {
-            _seededChats.Add(chatId);
-            if (!_settingsCache.ContainsKey(chatId))
+            if (_settingsCache.ContainsKey(chatId) && _seededChats.ContainsKey(chatId))
+                return;
+
+            var hasSettings = await _db.BotSettings.AnyAsync(x => x.ChatId == chatId);
+            var hasRules = await _db.AccrualRules.AnyAsync(x => x.ChatId == chatId);
+
+            if (hasSettings && hasRules)
             {
-                var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
-                if (settings is not null)
-                    _settingsCache[chatId] = settings;
+                _seededChats[chatId] = 0;
+                if (!_settingsCache.ContainsKey(chatId))
+                {
+                    var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+                    if (settings is not null)
+                        _settingsCache[chatId] = settings;
+                }
+                return;
             }
-            return;
-        }
 
         if (!hasSettings)
         {
@@ -78,13 +86,18 @@ public class SalaryScheduleService
         }
 
         await _db.SaveChangesAsync();
-        _seededChats.Add(chatId);
+        _seededChats[chatId] = 0;
 
         if (!_settingsCache.ContainsKey(chatId))
         {
             var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
             if (settings is not null)
                 _settingsCache[chatId] = settings;
+        }
+        }
+        finally
+        {
+            chatLock.Release();
         }
     }
 
