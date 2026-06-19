@@ -154,7 +154,7 @@ try
         await bot.SetWebhook(
             webhookUrl,
             allowedUpdates: [],
-            dropPendingUpdates: true);
+            dropPendingUpdates: false);
         Console.WriteLine("Webhook set successfully.");
     }
 
