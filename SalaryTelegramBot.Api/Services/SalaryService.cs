@@ -333,21 +333,19 @@ $"""
             .ToList();
 
         var sb = new StringBuilder();
+        sb.AppendLine($"Дата   Начисл   Выплата   НДФЛ   Ост({sym})");
+        sb.AppendLine("------+--------+---------+------+--------");
 
         decimal balance = 0;
         foreach (var row in grouped)
         {
             balance += row.Salary + row.Ndfl - row.Payment;
-            var date = row.Date.ToString("dd.MM");
 
-            if (row.Salary > 0)
-                sb.AppendLine($"{date}  +{row.Salary:N0} {sym}");
-            if (row.Payment > 0)
-                sb.AppendLine($"{date}  -{row.Payment:N0} {sym}");
-            if (row.Ndfl > 0)
-                sb.AppendLine($"{date}  НДФЛ {row.Ndfl:N0} {sym}");
-
-            sb.AppendLine($"   итого: {balance:N0} {sym}");
+            sb.Append(row.Date.ToString("dd.MM")).Append("  ")
+                .Append(FormatCompact(row.Salary)).Append("  ")
+                .Append(FormatCompact(row.Payment)).Append("  ")
+                .Append(FormatCompact(row.Ndfl)).Append("  ")
+                .Append(FormatCompact(balance)).AppendLine();
         }
 
         return sb.ToString().TrimEnd();
@@ -551,6 +549,11 @@ $"""
     private static string FormatCell(decimal value)
     {
         return value.ToString("N0").PadLeft(8);
+    }
+
+    private static string FormatCompact(decimal value)
+    {
+        return value.ToString("N0").PadLeft(7);
     }
 
     private static void AppendMatrixRow(
