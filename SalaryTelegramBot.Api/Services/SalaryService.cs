@@ -333,19 +333,21 @@ $"""
             .ToList();
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Дата       |  Начисл  | Выплата  |   НДФЛ   |  Остаток ({sym})");
-        sb.AppendLine("-----------+----------+----------+----------+----------");
 
         decimal balance = 0;
         foreach (var row in grouped)
         {
             balance += row.Salary + row.Ndfl - row.Payment;
+            var date = row.Date.ToString("dd.MM");
 
-            sb.Append(row.Date.ToString("dd.MM.yyyy")).Append(" | ")
-                .Append(FormatCell(row.Salary)).Append(" | ")
-                .Append(FormatCell(row.Payment)).Append(" | ")
-                .Append(FormatCell(row.Ndfl)).Append(" | ")
-                .Append(FormatCell(balance)).AppendLine();
+            if (row.Salary > 0)
+                sb.AppendLine($"{date}  +{row.Salary:N0} {sym}");
+            if (row.Payment > 0)
+                sb.AppendLine($"{date}  -{row.Payment:N0} {sym}");
+            if (row.Ndfl > 0)
+                sb.AppendLine($"{date}  НДФЛ {row.Ndfl:N0} {sym}");
+
+            sb.AppendLine($"   итого: {balance:N0} {sym}");
         }
 
         return sb.ToString().TrimEnd();
