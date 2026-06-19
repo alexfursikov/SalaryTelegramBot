@@ -86,6 +86,33 @@ public class SalaryScheduleService
             .ToListAsync();
     }
 
+    public async Task<DateTime> SnapToNearestAccrualDayAsync(long chatId, DateTime date)
+    {
+        var rules = await GetRulesAsync(chatId);
+        if (rules.Count == 0)
+            return date;
+
+        var daysInMonth = DateTime.DaysInMonth(date.Year, date.Month);
+        var accrualDays = rules
+            .Select(r => Math.Min(r.DayOfMonth, daysInMonth))
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        var futureDay = accrualDays.FirstOrDefault(d => d >= date.Day);
+        if (futureDay != 0)
+            return new DateTime(date.Year, date.Month, futureDay, date.Hour, date.Minute, date.Second);
+
+        var nextMonth = date.AddMonths(1);
+        var nextDaysInMonth = DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month);
+        var nextMonthDay = rules
+            .Select(r => Math.Min(r.DayOfMonth, nextDaysInMonth))
+            .OrderBy(d => d)
+            .First();
+
+        return new DateTime(nextMonth.Year, nextMonth.Month, nextMonthDay, date.Hour, date.Minute, date.Second);
+    }
+
     public async Task<(int Hour, int Minute)> GetCheckTimeAsync(long chatId)
     {
         var settings = await GetOrCreateBotSettingsAsync(chatId);
