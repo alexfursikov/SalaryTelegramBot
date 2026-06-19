@@ -130,26 +130,33 @@ public class TelegramBotService
         var currentState = _state.GetState(chatId);
         if (currentState is not null)
         {
-            var parsed = Enum.Parse<BotAwaitState>(currentState);
-            var handled = parsed switch
+            if (text.StartsWith("menu:") || text == "Отмена")
             {
-                BotAwaitState.PayAmountInput => await HandlePayAmountInput(chatId, text, output),
-                BotAwaitState.PayDateInput => await HandlePayDateInput(salaryService, scheduleService, chatId, text, output),
-                BotAwaitState.ScheduleAddInput => await HandleScheduleAddInput(scheduleService, chatId, text, output),
-                BotAwaitState.ScheduleDelInput => await HandleScheduleDeleteInput(scheduleService, chatId, text, output),
-                BotAwaitState.ScheduleTimeInput => await HandleScheduleTimeInput(scheduleService, chatId, text, output),
-                BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
-                BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
-                BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
-                BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, output, scheduleService),
-                BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, output),
-                _ => false
-            };
+                _state.ClearAll(chatId);
+            }
+            else
+            {
+                var parsed = Enum.Parse<BotAwaitState>(currentState);
+                var handled = parsed switch
+                {
+                    BotAwaitState.PayAmountInput => await HandlePayAmountInput(chatId, text, output),
+                    BotAwaitState.PayDateInput => await HandlePayDateInput(salaryService, scheduleService, chatId, text, output),
+                    BotAwaitState.ScheduleAddInput => await HandleScheduleAddInput(scheduleService, chatId, text, output),
+                    BotAwaitState.ScheduleDelInput => await HandleScheduleDeleteInput(scheduleService, chatId, text, output),
+                    BotAwaitState.ScheduleTimeInput => await HandleScheduleTimeInput(scheduleService, chatId, text, output),
+                    BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
+                    BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
+                    BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
+                    BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, output, scheduleService),
+                    BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, output),
+                    _ => false
+                };
 
-            if (handled)
-                _state.RemoveState(chatId);
+                if (handled)
+                    _state.RemoveState(chatId);
 
-            return;
+                return;
+            }
         }
 
         if (text is "/start" or "/help")
