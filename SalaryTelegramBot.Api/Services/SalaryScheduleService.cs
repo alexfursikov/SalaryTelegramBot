@@ -92,6 +92,11 @@ public class SalaryScheduleService
         if (rules.Count == 0)
             return date;
 
+        return SnapDateToAccrualRules(date, rules);
+    }
+
+    private static DateTime SnapDateToAccrualRules(DateTime date, List<AccrualRule> rules)
+    {
         var daysInMonth = DateTime.DaysInMonth(date.Year, date.Month);
         var accrualDays = rules
             .Select(r => Math.Min(r.DayOfMonth, daysInMonth))
@@ -111,6 +116,32 @@ public class SalaryScheduleService
             .First();
 
         return new DateTime(nextMonth.Year, nextMonth.Month, nextMonthDay, date.Hour, date.Minute, date.Second);
+    }
+
+    private async Task<int> SnapPaymentsToAccrualDaysAsync(long chatId, List<AccrualRule> rules)
+    {
+        if (rules.Count == 0)
+            return 0;
+
+        var payments = await _db.Transactions
+            .Where(x => x.ChatId == chatId && x.Type == TransactionType.Payment)
+            .ToListAsync();
+
+        var snapped = 0;
+        foreach (var payment in payments)
+        {
+            var snappedDate = SnapDateToAccrualRules(payment.Date, rules);
+            if (snappedDate.Date != payment.Date.Date)
+            {
+                payment.Date = snappedDate;
+                snapped++;
+            }
+        }
+
+        if (snapped > 0)
+            await _db.SaveChangesAsync();
+
+        return snapped;
     }
 
     public async Task<(int Hour, int Minute)> GetCheckTimeAsync(long chatId)
@@ -387,8 +418,10 @@ $"""
             monthCursor = monthCursor.AddMonths(1);
         }
 
+        var paymentsSnap = await SnapPaymentsToAccrualDaysAsync(chatId, rules);
+
         var ndflChanged = await salaryService.RecalculateNdflForRange(chatId, startDateUtc, DateTime.UtcNow);
-        return $"Пересчет завершен. Добавлено начислений: {added}, пересчитано НДФЛ: {ndflChanged}.";
+        return $"Пересчет завершен. Добавлено начислений: {added}, привязано выплат: {paymentsSnap}, пересчитано НДФЛ: {ndflChanged}.";
     }
 
     private async Task<BotSettings> GetOrCreateBotSettingsAsync(long chatId)
