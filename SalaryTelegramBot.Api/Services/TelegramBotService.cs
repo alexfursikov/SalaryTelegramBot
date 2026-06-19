@@ -79,6 +79,8 @@ public class TelegramBotService
 
         var bot = CreateBotClient();
 
+        _ = bot.AnswerCallbackQueryAsync(callbackQueryId, cancellationToken: token);
+
         async Task EditMessage(string t, IReplyMarkup? k = null, ParseMode pm = ParseMode.None)
         {
             try
@@ -704,6 +706,7 @@ $"""
         return new InlineKeyboardMarkup([
             [InlineKeyboardButton.WithCallbackData("💰 Общий долг", CbStatus), InlineKeyboardButton.WithCallbackData("📚 История долга", CbHistory)],
             [InlineKeyboardButton.WithCallbackData("💸 Учет полученной выплаты", CbPay)],
+            [InlineKeyboardButton.WithCallbackData("🔄 Пересчитать начисления", CbRecalc)],
             [InlineKeyboardButton.WithCallbackData("⚙️ Настройки", CbSettings)],
             [InlineKeyboardButton.WithCallbackData($"{flag} Валюта: {currency}", CbCurrency)]
         ]);

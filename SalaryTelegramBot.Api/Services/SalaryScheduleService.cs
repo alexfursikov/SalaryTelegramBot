@@ -299,7 +299,7 @@ $"""
         if (rules.Count == 0)
             return "Нет правил начисления для пересчета.";
 
-        var today = DateTime.Today;
+        var today = DateTime.UtcNow.Date;
 
         var configuredStartDate = await GetCalculationStartDateAsync(chatId);
         var startDate = configuredStartDate
@@ -310,28 +310,31 @@ $"""
                             .FirstOrDefaultAsync();
 
         if (startDate == default)
-            startDate = new DateTime(today.Year, today.Month, 1);
+            startDate = new DateTime(today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var startDateUtc = startDate.Kind == DateTimeKind.Utc ? startDate : DateTime.SpecifyKind(startDate.Date, DateTimeKind.Utc);
+        var todayUtc = DateTime.SpecifyKind(today, DateTimeKind.Utc);
 
         var existingSalaryDates = await _db.Transactions
             .Where(x => x.ChatId == chatId && x.Type == TransactionType.Salary)
-            .Where(x => x.Date.Date >= startDate.Date && x.Date.Date <= today)
+            .Where(x => x.Date >= startDateUtc && x.Date <= todayUtc)
             .Select(x => x.Date.Date)
             .ToListAsync();
 
         var existing = existingSalaryDates.ToHashSet();
         var added = 0;
 
-        var monthCursor = new DateTime(startDate.Year, startDate.Month, 1);
+        var monthCursor = new DateTime(startDateUtc.Year, startDateUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
-        while (monthCursor <= today)
+        while (monthCursor <= todayUtc)
         {
             var daysInMonth = DateTime.DaysInMonth(monthCursor.Year, monthCursor.Month);
 
             foreach (var rule in rules)
             {
                 var targetDay = Math.Min(rule.DayOfMonth, daysInMonth);
-                var accrualDate = new DateTime(monthCursor.Year, monthCursor.Month, targetDay);
-                if (accrualDate < startDate.Date || accrualDate > today || existing.Contains(accrualDate))
+                var accrualDate = new DateTime(monthCursor.Year, monthCursor.Month, targetDay, 0, 0, 0, DateTimeKind.Utc);
+                if (accrualDate < startDateUtc || accrualDate > todayUtc || existing.Contains(accrualDate))
                     continue;
 
                 await salaryService.AddSalary(chatId, rule.Amount, accrualDate);
@@ -342,7 +345,7 @@ $"""
             monthCursor = monthCursor.AddMonths(1);
         }
 
-        var ndflChanged = await salaryService.RecalculateNdflForRange(chatId, startDate, DateTime.Now);
+        var ndflChanged = await salaryService.RecalculateNdflForRange(chatId, startDateUtc, DateTime.UtcNow);
         return $"Пересчет завершен. Добавлено начислений: {added}, пересчитано НДФЛ: {ndflChanged}.";
     }
 
