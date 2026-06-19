@@ -16,6 +16,28 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Transaction>()
+            .Ignore(x => x.Amount);
+
+        modelBuilder.Entity<Transaction>()
+            .Property(x => x.EncryptedAmount)
+            .HasColumnType("bytea");
+
+        modelBuilder.Entity<AccrualRule>()
+            .Ignore(x => x.Amount);
+
+        modelBuilder.Entity<AccrualRule>()
+            .Property(x => x.EncryptedAmount)
+            .HasColumnType("bytea");
+
+        modelBuilder.Entity<BotSettings>()
+            .Property(x => x.PasswordSalt)
+            .HasColumnType("bytea");
+
+        modelBuilder.Entity<BotSettings>()
+            .Property(x => x.PasswordProof)
+            .HasColumnType("bytea");
+
         modelBuilder.Entity<AccrualRule>()
             .HasIndex(x => new { x.ChatId, x.DayOfMonth })
             .IsUnique();

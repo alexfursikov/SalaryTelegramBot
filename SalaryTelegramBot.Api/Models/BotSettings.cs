@@ -25,4 +25,10 @@ public class BotSettings
     public int? CalculationStartDay { get; set; }
 
     public string Currency { get; set; } = "RUB";
+
+    public byte[]? PasswordSalt { get; set; }
+
+    public byte[]? PasswordProof { get; set; }
+
+    public bool IsEncrypted { get; set; }
 }

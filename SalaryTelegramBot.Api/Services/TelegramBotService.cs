@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography;
+using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -34,19 +36,25 @@ public class TelegramBotService
     private readonly BotStateService _state;
     private readonly RateLimiter _rateLimiter;
     private readonly ILogger<TelegramBotService> _logger;
+    private readonly EncryptionService _encryption;
+    private readonly UserKeyCache _keyCache;
 
     public TelegramBotService(
         IServiceProvider provider,
         IConfiguration config,
         BotStateService state,
         RateLimiter rateLimiter,
-        ILogger<TelegramBotService> logger)
+        ILogger<TelegramBotService> logger,
+        EncryptionService encryption,
+        UserKeyCache keyCache)
     {
         _provider = provider;
         _config = config;
         _state = state;
         _rateLimiter = rateLimiter;
         _logger = logger;
+        _encryption = encryption;
+        _keyCache = keyCache;
     }
 
     private TelegramBotClient CreateBotClient() => new(
@@ -133,6 +141,8 @@ public class TelegramBotService
                 BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
                 BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
                 BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
+                BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, output, scheduleService),
+                BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, output),
                 _ => false
             };
 
@@ -144,8 +154,38 @@ public class TelegramBotService
 
         if (text is "/start" or "/help")
         {
+            var hasPassword = await HasPasswordAsync(chatId);
+            if (!hasPassword)
+            {
+                _state.SetState(chatId, nameof(BotAwaitState.PasswordSetup));
+                await output("Для начала работы установите пароль.\n\n⚠️ Пароль используется для шифрования ваших финансовых данных. Если вы забудете пароль, данные будут потеряны навсегда.\n\nВведите пароль:");
+                return;
+            }
+
+            if (!_keyCache.HasKey(chatId))
+            {
+                _state.SetState(chatId, nameof(BotAwaitState.PasswordEntry));
+                await output("Введите пароль для доступа к данным:", GetCancelKeyboard());
+                return;
+            }
+
             await output("Этот бот помогает учитывать общий долг по зарплате:\nначисления и запрошенные частичные выплаты.\n\nВыберите действие в меню ниже.",
                 await GetMainKeyboardAsync(scheduleService, chatId));
+            return;
+        }
+
+        if (text == "/password")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.PasswordSetup));
+            await output("Введите новый пароль:", GetCancelKeyboard());
+            return;
+        }
+
+        var hasPwd = await HasPasswordAsync(chatId);
+        if (hasPwd && !_keyCache.HasKey(chatId) && text != "Отмена")
+        {
+            _state.SetState(chatId, nameof(BotAwaitState.PasswordEntry));
+            await output("Сессия истекла. Введите пароль для доступа к данным:", GetCancelKeyboard());
             return;
         }
 
@@ -676,6 +716,98 @@ $"""
         }
     }
 
+    private async Task<bool> HandlePasswordSetup(long chatId, string text, OutputFunc output, SalaryScheduleService scheduleService)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length < 4)
+        {
+            await output("Пароль должен содержать минимум 4 символа. Попробуйте еще раз:", GetCancelKeyboard());
+            return false;
+        }
+
+        var salt = _encryption.GenerateSalt();
+        var key = _encryption.DeriveKey(text, salt);
+        var proof = _encryption.Encrypt(0m, key);
+
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SalaryTelegramBot.Api.Data.AppDbContext>();
+
+        var settings = await db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+        if (settings is null)
+        {
+            settings = new Models.BotSettings
+            {
+                ChatId = chatId,
+                CheckHour = 12,
+                CheckMinute = 0,
+                IsNdflEnabled = false
+            };
+            db.BotSettings.Add(settings);
+        }
+
+        settings.PasswordSalt = salt;
+        settings.PasswordProof = proof;
+        await db.SaveChangesAsync();
+
+        _keyCache.SetKey(chatId, key);
+
+        using var salaryScope = _provider.CreateScope();
+        var salaryService = salaryScope.ServiceProvider.GetRequiredService<SalaryService>();
+        var encrypted = await salaryService.EncryptUserDataAsync(chatId, key);
+
+        _state.RemoveState(chatId);
+        _state.RemovePendingPassword(chatId);
+
+        await output(
+            $"Пароль установлен. Зашифровано {encrypted} записей.\n\n" +
+            "⚠️ Запишите пароль и храните в безопасном месте. Восстановление невозможно.",
+            await GetMainKeyboardAsync(scheduleService, chatId));
+        return true;
+    }
+
+    private async Task<bool> HandlePasswordEntry(long chatId, string text, OutputFunc output)
+    {
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SalaryTelegramBot.Api.Data.AppDbContext>();
+
+        var settings = await db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+        if (settings?.PasswordSalt is null || settings.PasswordProof is null)
+        {
+            _state.RemoveState(chatId);
+            await output("Пароль не установлен. Введите /start для настройки.");
+            return true;
+        }
+
+        var key = _encryption.DeriveKey(text, settings.PasswordSalt);
+
+        try
+        {
+            var decrypted = _encryption.Decrypt(settings.PasswordProof, key);
+            if (decrypted != 0m)
+                throw new CryptographicException();
+        }
+        catch
+        {
+            await output("Неверный пароль. Попробуйте еще раз:", GetCancelKeyboard());
+            return false;
+        }
+
+        _keyCache.SetKey(chatId, key);
+        _state.RemoveState(chatId);
+
+        using var scheduleScope = _provider.CreateScope();
+        var scheduleService = scheduleScope.ServiceProvider.GetRequiredService<SalaryScheduleService>();
+        await output("Добро пожаловать!", await GetMainKeyboardAsync(scheduleService, chatId));
+        return true;
+    }
+
+    private async Task<bool> HasPasswordAsync(long chatId)
+    {
+        using var scope = _provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SalaryTelegramBot.Api.Data.AppDbContext>();
+        var settings = await db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+        return settings?.PasswordSalt is not null;
+    }
+
     private static (int Day, int Month, int Year) ParseCalculationDate(string text)
     {
         var parts = text.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -744,6 +876,7 @@ $"""
     private enum BotAwaitState
     {
         PayAmountInput, PayDateInput, ScheduleAddInput, ScheduleDelInput,
-        ScheduleTimeInput, CalculationMonthInput, NdflFromInput, EditPayInput
+        ScheduleTimeInput, CalculationMonthInput, NdflFromInput, EditPayInput,
+        PasswordSetup, PasswordEntry
     }
 }

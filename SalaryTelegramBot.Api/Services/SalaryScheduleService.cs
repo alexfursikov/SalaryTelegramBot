@@ -11,13 +11,21 @@ public class SalaryScheduleService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _defaultSettings;
+    private readonly EncryptionService _encryption;
+    private readonly UserKeyCache _keyCache;
     private static readonly ConcurrentDictionary<long, BotSettings> _settingsCache = new();
     private static readonly HashSet<long> _seededChats = new();
 
-    public SalaryScheduleService(AppDbContext db, IOptions<SalarySettings> options)
+    public SalaryScheduleService(
+        AppDbContext db,
+        IOptions<SalarySettings> options,
+        EncryptionService encryption,
+        UserKeyCache keyCache)
     {
         _db = db;
         _defaultSettings = options.Value;
+        _encryption = encryption;
+        _keyCache = keyCache;
     }
 
     public async Task EnsureSeededForChatAsync(long chatId)
@@ -53,6 +61,7 @@ public class SalaryScheduleService
 
         if (!hasRules)
         {
+            var key = _keyCache.GetKey(chatId);
             foreach (var schedule in _defaultSettings.Schedules)
             {
                 foreach (var day in schedule.Days)
@@ -61,7 +70,8 @@ public class SalaryScheduleService
                     {
                         ChatId = chatId,
                         DayOfMonth = day,
-                        Amount = schedule.Amount
+                        Amount = schedule.Amount,
+                        EncryptedAmount = key is not null ? _encryption.Encrypt(schedule.Amount, key) : null
                     });
                 }
             }
@@ -80,15 +90,31 @@ public class SalaryScheduleService
 
     public async Task<List<AccrualRule>> GetRulesAsync(long chatId)
     {
-        return await _db.AccrualRules
+        var rules = await _db.AccrualRules
             .Where(x => x.ChatId == chatId)
             .OrderBy(x => x.DayOfMonth)
             .ToListAsync();
+
+        var key = _keyCache.GetKey(chatId);
+        if (key is not null)
+        {
+            foreach (var rule in rules)
+            {
+                if (rule.EncryptedAmount is not null)
+                    rule.Amount = _encryption.Decrypt(rule.EncryptedAmount, key);
+            }
+        }
+
+        return rules;
     }
 
     public async Task<DateTime> SnapToNearestAccrualDayAsync(long chatId, DateTime date)
     {
-        var rules = await GetRulesAsync(chatId);
+        var rules = await _db.AccrualRules
+            .Where(x => x.ChatId == chatId)
+            .OrderBy(x => x.DayOfMonth)
+            .ToListAsync();
+
         if (rules.Count == 0)
             return date;
 
@@ -123,6 +149,7 @@ public class SalaryScheduleService
         if (rules.Count == 0)
             return 0;
 
+        var key = _keyCache.GetKey(chatId);
         var payments = await _db.Transactions
             .Where(x => x.ChatId == chatId && x.Type == TransactionType.Payment)
             .ToListAsync();
@@ -275,18 +302,23 @@ $"""
         var rule = await _db.AccrualRules
             .FirstOrDefaultAsync(x => x.ChatId == chatId && x.DayOfMonth == day);
 
+        var key = _keyCache.GetKey(chatId);
+
         if (rule is null)
         {
             _db.AccrualRules.Add(new AccrualRule
             {
                 ChatId = chatId,
                 DayOfMonth = day,
-                Amount = amount
+                Amount = amount,
+                EncryptedAmount = key is not null ? _encryption.Encrypt(amount, key) : null
             });
         }
         else
         {
             rule.Amount = amount;
+            if (key is not null)
+                rule.EncryptedAmount = _encryption.Encrypt(amount, key);
         }
 
         await _db.SaveChangesAsync();
@@ -348,6 +380,7 @@ $"""
         foreach (var setting in settings
                      .Where(s => s.CheckHour == currentHour && s.CheckMinute == currentMinute))
         {
+            var key = _keyCache.GetKey(setting.ChatId);
             var rules = await _db.AccrualRules
                 .Where(r => r.ChatId == setting.ChatId)
                 .ToListAsync();
@@ -359,7 +392,18 @@ $"""
                 if (today.Day != targetDay)
                     continue;
 
-                await salaryService.AddSalary(setting.ChatId, rule.Amount, today);
+                if (key is not null)
+                {
+                    if (rule.EncryptedAmount is not null)
+                        rule.Amount = _encryption.Decrypt(rule.EncryptedAmount, key);
+
+                    await salaryService.AddSalary(setting.ChatId, rule.Amount, today);
+                }
+                else
+                {
+                    if (rule.EncryptedAmount is not null)
+                        await salaryService.AddSalaryEncrypted(setting.ChatId, rule.EncryptedAmount, today);
+                }
             }
         }
     }
@@ -466,6 +510,7 @@ $"""
 
     public async Task<(string Message, bool Converted)> SetCurrencyAsync(long chatId, string currency, NbrbRateService rateService)
     {
+        var key = _keyCache.GetKey(chatId);
         var settings = await GetOrCreateBotSettingsAsync(chatId);
         var oldCurrency = string.IsNullOrEmpty(settings.Currency) ? "RUB" : settings.Currency;
 
@@ -480,10 +525,21 @@ $"""
             .Where(x => x.ChatId == chatId)
             .ToListAsync();
 
+        if (key is not null)
+        {
+            foreach (var tx in transactions)
+            {
+                if (tx.EncryptedAmount is not null)
+                    tx.Amount = _encryption.Decrypt(tx.EncryptedAmount, key);
+            }
+        }
+
         var converted = 0;
         foreach (var tx in transactions)
         {
             tx.Amount = rateService.Convert(tx.Amount, fromRate.Value, toRate.Value);
+            if (key is not null)
+                tx.EncryptedAmount = _encryption.Encrypt(tx.Amount, key);
             converted++;
         }
 
@@ -491,9 +547,20 @@ $"""
             .Where(x => x.ChatId == chatId)
             .ToListAsync();
 
+        if (key is not null)
+        {
+            foreach (var rule in rules)
+            {
+                if (rule.EncryptedAmount is not null)
+                    rule.Amount = _encryption.Decrypt(rule.EncryptedAmount, key);
+            }
+        }
+
         foreach (var rule in rules)
         {
             rule.Amount = rateService.Convert(rule.Amount, fromRate.Value, toRate.Value);
+            if (key is not null)
+                rule.EncryptedAmount = _encryption.Encrypt(rule.Amount, key);
         }
 
         settings.Currency = currency;

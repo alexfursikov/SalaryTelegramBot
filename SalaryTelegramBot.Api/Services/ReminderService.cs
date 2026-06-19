@@ -10,12 +10,21 @@ public class ReminderService
     private readonly AppDbContext _db;
     private readonly TelegramBotClient _bot;
     private readonly ILogger<ReminderService> _logger;
+    private readonly EncryptionService _encryption;
+    private readonly UserKeyCache _keyCache;
 
-    public ReminderService(AppDbContext db, TelegramBotClient bot, ILogger<ReminderService> logger)
+    public ReminderService(
+        AppDbContext db,
+        TelegramBotClient bot,
+        ILogger<ReminderService> logger,
+        EncryptionService encryption,
+        UserKeyCache keyCache)
     {
         _db = db;
         _bot = bot;
         _logger = logger;
+        _encryption = encryption;
+        _keyCache = keyCache;
     }
 
     public async Task CheckAndSendRemindersAsync(CancellationToken ct = default)
@@ -27,6 +36,7 @@ public class ReminderService
 
         foreach (var setting in settings)
         {
+            var key = _keyCache.GetKey(setting.ChatId);
             var rules = await _db.AccrualRules
                 .Where(r => r.ChatId == setting.ChatId)
                 .ToListAsync(ct);
@@ -47,15 +57,26 @@ public class ReminderService
                 if (!hasAccrualToday)
                     continue;
 
+                if (key is null)
+                    continue;
+
                 var calcStart = await GetCalculationStartDateAsync(setting.ChatId, ct);
 
-                var balance = await _db.Transactions
+                var transactions = await _db.Transactions
                     .Where(t => t.ChatId == setting.ChatId)
                     .Where(t => calcStart == null || t.Date >= calcStart.Value)
-                    .SumAsync(t =>
-                        t.Type == TransactionType.Salary || t.Type == TransactionType.Vat
-                            ? t.Amount
-                            : -t.Amount, ct);
+                    .ToListAsync(ct);
+
+                foreach (var tx in transactions)
+                {
+                    if (tx.EncryptedAmount is not null)
+                        tx.Amount = _encryption.Decrypt(tx.EncryptedAmount, key);
+                }
+
+                var balance = transactions
+                    .Sum(t => t.Type == TransactionType.Salary || t.Type == TransactionType.Vat
+                        ? t.Amount
+                        : -t.Amount);
 
                 if (balance <= 0)
                     continue;

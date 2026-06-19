@@ -12,26 +12,37 @@ public class SalaryService
 {
     private readonly AppDbContext _db;
     private readonly SalarySettings _salarySettings;
+    private readonly EncryptionService _encryption;
+    private readonly UserKeyCache _keyCache;
     private static readonly ConcurrentDictionary<long, Models.BotSettings> _settingsCache = new();
 
-    public SalaryService(AppDbContext db, IOptions<SalarySettings> salaryOptions)
+    public SalaryService(
+        AppDbContext db,
+        IOptions<SalarySettings> salaryOptions,
+        EncryptionService encryption,
+        UserKeyCache keyCache)
     {
         _db = db;
         _salarySettings = salaryOptions.Value;
+        _encryption = encryption;
+        _keyCache = keyCache;
     }
 
     public async Task AddPayment(long chatId, decimal amount, DateTime date)
     {
         var normalizedDate = NormalizeToUtc(date);
+        var key = _keyCache.GetKey(chatId);
 
-        _db.Transactions.Add(new Transaction
+        var tx = new Transaction
         {
             ChatId = chatId,
             Amount = amount,
             Date = normalizedDate,
-            Type = TransactionType.Payment
-        });
+            Type = TransactionType.Payment,
+            EncryptedAmount = key is not null ? _encryption.Encrypt(amount, key) : null
+        };
 
+        _db.Transactions.Add(tx);
         await _db.SaveChangesAsync();
     }
 
@@ -52,16 +63,16 @@ public class SalaryService
         if (ndflRate < 0m || ndflRate >= 1m)
             throw new InvalidOperationException("NdflPercent must be in range [0, 100).");
 
-        // amount is treated as "net salary" (на руки)
-        // NDFL = (net / (1 - rate)) - net
         var ndflAmount = Math.Round((amount / (1m - ndflRate)) - amount, 2, MidpointRounding.AwayFromZero);
+        var key = _keyCache.GetKey(chatId);
 
         _db.Transactions.Add(new Transaction
         {
             ChatId = chatId,
             Amount = amount,
             Date = normalizedDate,
-            Type = TransactionType.Salary
+            Type = TransactionType.Salary,
+            EncryptedAmount = key is not null ? _encryption.Encrypt(amount, key) : null
         });
 
         var ndflEnabled = await IsNdflEnabled(chatId);
@@ -76,15 +87,42 @@ public class SalaryService
                 Amount = ndflAmount,
                 Date = normalizedDate,
                 Type = TransactionType.Vat,
-                Comment = "auto_ndfl"
+                Comment = "auto_ndfl",
+                EncryptedAmount = key is not null ? _encryption.Encrypt(ndflAmount, key) : null
             });
         }
 
         await _db.SaveChangesAsync();
     }
 
+    public async Task AddSalaryEncrypted(long chatId, byte[] encryptedAmount, DateTime date)
+    {
+        var normalizedDate = NormalizeToUtc(date);
+
+        bool exists = await _db.Transactions
+            .AnyAsync(x =>
+                x.ChatId == chatId &&
+                x.Date.Date == normalizedDate.Date &&
+                x.Type == TransactionType.Salary);
+
+        if (exists)
+            return;
+
+        _db.Transactions.Add(new Transaction
+        {
+            ChatId = chatId,
+            Amount = 0,
+            Date = normalizedDate,
+            Type = TransactionType.Salary,
+            EncryptedAmount = encryptedAmount
+        });
+
+        await _db.SaveChangesAsync();
+    }
+
     public async Task<int> RecalculateNdflForRange(long chatId, DateTime fromDate, DateTime toDate)
     {
+        var key = _keyCache.GetKey(chatId);
         var fromUtc = NormalizeToUtc(fromDate);
         var toUtc = NormalizeToUtc(toDate);
 
@@ -97,6 +135,9 @@ public class SalaryService
             .Where(x => x.ChatId == chatId && x.Type == TransactionType.Vat)
             .Where(x => x.Date >= fromUtc && x.Date <= toUtc)
             .ToListAsync();
+
+        if (key is not null)
+            DecryptTransactions(salaries, key);
 
         var autoNdfl = allNdfl
             .Where(x => x.Comment == "auto_ndfl")
@@ -163,17 +204,23 @@ public class SalaryService
                     Amount = expected,
                     Date = salaryTx.Date,
                     Type = TransactionType.Vat,
-                    Comment = "auto_ndfl"
+                    Comment = "auto_ndfl",
+                    EncryptedAmount = key is not null ? _encryption.Encrypt(expected, key) : null
                 });
                 changed++;
                 continue;
             }
 
             var first = vatList[0];
+            if (key is not null && first.EncryptedAmount is not null)
+                first.Amount = _encryption.Decrypt(first.EncryptedAmount, key);
+
             if (first.Amount != expected || first.Date != salaryTx.Date)
             {
                 first.Amount = expected;
                 first.Date = salaryTx.Date;
+                if (key is not null)
+                    first.EncryptedAmount = _encryption.Encrypt(expected, key);
                 changed++;
             }
 
@@ -215,12 +262,16 @@ public class SalaryService
 
     public async Task<string> GetStatus(long chatId, string currency = "RUB")
     {
+        var key = _keyCache.GetKey(chatId);
         var calculationStartDate = await GetCalculationStartDate(chatId);
 
         var transactions = await _db.Transactions
             .Where(x => x.ChatId == chatId)
             .Where(x => calculationStartDate == null || x.Date >= calculationStartDate.Value)
             .ToListAsync();
+
+        if (key is not null)
+            DecryptTransactions(transactions, key);
 
         var salary = transactions
             .Where(x => x.Type == TransactionType.Salary)
@@ -254,10 +305,15 @@ $"""
 
     public async Task<string> GetHistory(long chatId, string currency = "RUB")
     {
+        var key = _keyCache.GetKey(chatId);
+
         var list = await _db.Transactions
             .Where(x => x.ChatId == chatId)
             .OrderBy(x => x.Date)
             .ToListAsync();
+
+        if (key is not null)
+            DecryptTransactions(list, key);
 
         if (list.Count == 0)
             return "История пока пустая.";
@@ -297,10 +353,15 @@ $"""
 
     public async Task<string> GetHistoryMatrix(long chatId)
     {
+        var key = _keyCache.GetKey(chatId);
+
         var list = await _db.Transactions
             .Where(x => x.ChatId == chatId)
             .OrderBy(x => x.Date)
             .ToListAsync();
+
+        if (key is not null)
+            DecryptTransactions(list, key);
 
         if (list.Count == 0)
             return "История пока пустая.";
@@ -354,6 +415,7 @@ $"""
 
     public async Task<string> UpdateAmountByDate(long chatId, DateTime date, decimal newAmount, bool editReceivedPayment = false, string currency = "RUB")
     {
+        var key = _keyCache.GetKey(chatId);
         var normalizedDate = NormalizeToUtc(date);
         var typeToEdit = editReceivedPayment ? TransactionType.Payment : TransactionType.Salary;
         var typeLabel = editReceivedPayment ? "выплата" : "начисление";
@@ -371,8 +433,14 @@ $"""
             return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} не найдена.";
 
         var target = items[^1];
+
+        if (key is not null && target.EncryptedAmount is not null)
+            target.Amount = _encryption.Decrypt(target.EncryptedAmount, key);
+
         var oldAmount = target.Amount;
         target.Amount = newAmount;
+        if (key is not null)
+            target.EncryptedAmount = _encryption.Encrypt(newAmount, key);
 
         await _db.SaveChangesAsync();
 
@@ -386,6 +454,72 @@ $"""
         }
 
         return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} изменена: {oldAmount:N0} {sym} -> {newAmount:N0} {sym}.";
+    }
+
+    public async Task<int> EncryptUserDataAsync(long chatId, byte[] key)
+    {
+        var transactions = await _db.Transactions
+            .Where(x => x.ChatId == chatId)
+            .ToListAsync();
+
+        var rules = await _db.AccrualRules
+            .Where(x => x.ChatId == chatId)
+            .ToListAsync();
+
+        foreach (var tx in transactions)
+        {
+            if (tx.EncryptedAmount is null)
+            {
+                tx.EncryptedAmount = _encryption.Encrypt(tx.Amount, key);
+            }
+        }
+
+        foreach (var rule in rules)
+        {
+            if (rule.EncryptedAmount is null)
+            {
+                rule.EncryptedAmount = _encryption.Encrypt(rule.Amount, key);
+            }
+        }
+
+        var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+        if (settings is not null)
+            settings.IsEncrypted = true;
+
+        await _db.SaveChangesAsync();
+
+        await _db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"Transactions\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
+            chatId);
+        await _db.Database.ExecuteSqlRawAsync(
+            "UPDATE \"AccrualRules\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
+            chatId);
+
+        return transactions.Count + rules.Count;
+    }
+
+    private void DecryptTransactions(List<Transaction> transactions, byte[] key)
+    {
+        foreach (var tx in transactions)
+        {
+            if (tx.EncryptedAmount is not null)
+                tx.Amount = _encryption.Decrypt(tx.EncryptedAmount, key);
+        }
+    }
+
+    public void DecryptAccrualRules(List<AccrualRule> rules, byte[] key)
+    {
+        foreach (var rule in rules)
+        {
+            if (rule.EncryptedAmount is not null)
+                rule.Amount = _encryption.Decrypt(rule.EncryptedAmount, key);
+        }
+    }
+
+    public void DecryptAccrualRule(AccrualRule rule, byte[] key)
+    {
+        if (rule.EncryptedAmount is not null)
+            rule.Amount = _encryption.Decrypt(rule.EncryptedAmount, key);
     }
 
     private static DateTime NormalizeToUtc(DateTime date)

@@ -77,6 +77,8 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<TelegramBotService>();
 builder.Services.AddSingleton<BotStateService>();
 builder.Services.AddSingleton<RateLimiter>();
+builder.Services.AddSingleton<EncryptionService>();
+builder.Services.AddSingleton<UserKeyCache>();
 builder.Services.AddHttpClient<NbrbRateService>();
 builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
@@ -119,6 +121,15 @@ try
                         ""Date"" timestamp with time zone NOT NULL, ""Amount"" numeric NOT NULL,
                         ""Type"" integer NOT NULL, ""Comment"" text NOT NULL DEFAULT '');
                     ALTER TABLE ""BotSettings"" ADD COLUMN IF NOT EXISTS ""Currency"" text NOT NULL DEFAULT 'RUB';
+                    ALTER TABLE ""BotSettings"" ADD COLUMN IF NOT EXISTS ""PasswordSalt"" bytea;
+                    ALTER TABLE ""BotSettings"" ADD COLUMN IF NOT EXISTS ""PasswordProof"" bytea;
+                    ALTER TABLE ""BotSettings"" ADD COLUMN IF NOT EXISTS ""IsEncrypted"" boolean NOT NULL DEFAULT false;
+                    ALTER TABLE ""Transactions"" ADD COLUMN IF NOT EXISTS ""EncryptedAmount"" bytea;
+                    ALTER TABLE ""AccrualRules"" ADD COLUMN IF NOT EXISTS ""EncryptedAmount"" bytea;
+                    ALTER TABLE ""Transactions"" ALTER COLUMN ""Amount"" DROP NOT NULL;
+                    ALTER TABLE ""Transactions"" ALTER COLUMN ""Amount"" SET DEFAULT 0;
+                    ALTER TABLE ""AccrualRules"" ALTER COLUMN ""Amount"" DROP NOT NULL;
+                    ALTER TABLE ""AccrualRules"" ALTER COLUMN ""Amount"" SET DEFAULT 0;
                     CREATE UNIQUE INDEX IF NOT EXISTS ""IX_AccrualRules_ChatId_DayOfMonth"" ON ""AccrualRules"" (""ChatId"", ""DayOfMonth"");
                     CREATE UNIQUE INDEX IF NOT EXISTS ""IX_BotSettings_ChatId"" ON ""BotSettings"" (""ChatId"");
                     CREATE INDEX IF NOT EXISTS ""IX_Transactions_ChatId"" ON ""Transactions"" (""ChatId"");
