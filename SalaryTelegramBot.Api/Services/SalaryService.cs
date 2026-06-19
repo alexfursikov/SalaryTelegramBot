@@ -458,12 +458,10 @@ $"""
 
     public async Task<int> EncryptUserDataAsync(long chatId, byte[] key)
     {
-        var connStr = _db.Database.GetConnectionString();
-        var builder = new Npgsql.NpgsqlConnectionStringBuilder(connStr)
-        {
-            MaxAutoPrepare = 0
-        };
-        await using var conn = new Npgsql.NpgsqlConnection(builder.ConnectionString);
+        var connStr = _db.Database.GetConnectionString()!
+            .Replace("Port=6543", "Port=5432")
+            .Replace(":6543/", ":5432/");
+        await using var conn = new Npgsql.NpgsqlConnection(connStr);
         await conn.OpenAsync();
 
         var amounts = new Dictionary<int, decimal>();
