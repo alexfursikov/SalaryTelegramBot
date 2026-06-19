@@ -382,7 +382,7 @@ public class TelegramBotService
                 break;
             case CbRecalc:
                 var recalc = await scheduleService.RecalculateAccrualsAsync(chatId, salaryService);
-                await output(recalc, await GetSettingsKeyboardAsync(scheduleService, chatId));
+                await output(recalc, await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             case CbNdflFlag:
                 var ndfl = await scheduleService.ToggleNdflAsync(chatId);
