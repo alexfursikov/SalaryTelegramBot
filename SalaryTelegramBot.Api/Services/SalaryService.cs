@@ -459,9 +459,11 @@ $"""
     public async Task<int> EncryptUserDataAsync(long chatId, byte[] key)
     {
         var connStr = _db.Database.GetConnectionString();
-        if (!connStr.Contains("PrepareThreshold"))
-            connStr += ";PrepareThreshold=0";
-        await using var conn = new Npgsql.NpgsqlConnection(connStr);
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(connStr)
+        {
+            MaxAutoPrepare = 0
+        };
+        await using var conn = new Npgsql.NpgsqlConnection(builder.ConnectionString);
         await conn.OpenAsync();
 
         var amounts = new Dictionary<int, decimal>();
