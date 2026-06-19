@@ -463,9 +463,9 @@ $"""
         {
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT \"Id\", \"Amount\" FROM \"Transactions\" WHERE \"ChatId\" = @chatId AND \"EncryptedAmount\" IS NULL";
+            cmd.CommandText = "SELECT \"Id\", \"Amount\" FROM \"Transactions\" WHERE \"ChatId\" = $1 AND \"EncryptedAmount\" IS NULL";
             var p = cmd.CreateParameter();
-            p.ParameterName = "@chatId";
+            p.ParameterName = "$1";
             p.Value = chatId;
             cmd.Parameters.Add(p);
             await using var reader = await cmd.ExecuteReaderAsync();
@@ -475,10 +475,14 @@ $"""
 
         foreach (var (id, amount) in amounts)
         {
-            await _db.Database.ExecuteSqlRawAsync(
-                "UPDATE \"Transactions\" SET \"EncryptedAmount\" = @enc WHERE \"Id\" = @id",
-                new Microsoft.Data.SqlClient.SqlParameter("@enc", _encryption.Encrypt(amount, key)),
-                new Microsoft.Data.SqlClient.SqlParameter("@id", id));
+            var enc = _encryption.Encrypt(amount, key);
+            await using var conn = _db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE \"Transactions\" SET \"EncryptedAmount\" = $1 WHERE \"Id\" = $2";
+            cmd.Parameters.Add(new Npgsql.NpgsqlParameter("$1", enc));
+            cmd.Parameters.Add(new Npgsql.NpgsqlParameter("$2", id));
+            await cmd.ExecuteNonQueryAsync();
         }
 
         var ruleAmounts = new Dictionary<int, decimal>();
@@ -486,9 +490,9 @@ $"""
         {
             await conn2.OpenAsync();
             await using var cmd2 = conn2.CreateCommand();
-            cmd2.CommandText = "SELECT \"Id\", \"Amount\" FROM \"AccrualRules\" WHERE \"ChatId\" = @chatId AND \"EncryptedAmount\" IS NULL";
+            cmd2.CommandText = "SELECT \"Id\", \"Amount\" FROM \"AccrualRules\" WHERE \"ChatId\" = $1 AND \"EncryptedAmount\" IS NULL";
             var p2 = cmd2.CreateParameter();
-            p2.ParameterName = "@chatId";
+            p2.ParameterName = "$1";
             p2.Value = chatId;
             cmd2.Parameters.Add(p2);
             await using var reader2 = await cmd2.ExecuteReaderAsync();
@@ -498,18 +502,35 @@ $"""
 
         foreach (var (id, amount) in ruleAmounts)
         {
-            await _db.Database.ExecuteSqlRawAsync(
-                "UPDATE \"AccrualRules\" SET \"EncryptedAmount\" = @enc WHERE \"Id\" = @id",
-                new Microsoft.Data.SqlClient.SqlParameter("@enc", _encryption.Encrypt(amount, key)),
-                new Microsoft.Data.SqlClient.SqlParameter("@id", id));
+            var enc = _encryption.Encrypt(amount, key);
+            await using var conn = _db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE \"AccrualRules\" SET \"EncryptedAmount\" = $1 WHERE \"Id\" = $2";
+            cmd.Parameters.Add(new Npgsql.NpgsqlParameter("$1", enc));
+            cmd.Parameters.Add(new Npgsql.NpgsqlParameter("$2", id));
+            await cmd.ExecuteNonQueryAsync();
         }
 
-        await _db.Database.ExecuteSqlRawAsync(
-            "UPDATE \"Transactions\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
-            chatId);
-        await _db.Database.ExecuteSqlRawAsync(
-            "UPDATE \"AccrualRules\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
-            chatId);
+        await using (var connZero = _db.Database.GetDbConnection())
+        {
+            await connZero.OpenAsync();
+            await using var cmdZero = connZero.CreateCommand();
+            cmdZero.CommandText = "UPDATE \"Transactions\" SET \"Amount\" = 0 WHERE \"ChatId\" = $1 AND \"EncryptedAmount\" IS NOT NULL";
+            var pz = cmdZero.CreateParameter();
+            pz.ParameterName = "$1";
+            pz.Value = chatId;
+            cmdZero.Parameters.Add(pz);
+            await cmdZero.ExecuteNonQueryAsync();
+
+            await using var cmdZero2 = connZero.CreateCommand();
+            cmdZero2.CommandText = "UPDATE \"AccrualRules\" SET \"Amount\" = 0 WHERE \"ChatId\" = $1 AND \"EncryptedAmount\" IS NOT NULL";
+            var pz2 = cmdZero2.CreateParameter();
+            pz2.ParameterName = "$1";
+            pz2.Value = chatId;
+            cmdZero2.Parameters.Add(pz2);
+            await cmdZero2.ExecuteNonQueryAsync();
+        }
 
         var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
         if (settings is not null)
