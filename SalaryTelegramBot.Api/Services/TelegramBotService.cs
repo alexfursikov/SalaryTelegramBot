@@ -29,6 +29,7 @@ public class TelegramBotService
     private const string CbMain = "menu:main";
     private const string CbCurrency = "menu:currency";
     private const string CbCurrencySet = "menu:currencysymbol";
+    private const string CbHelp = "menu:help";
     private static readonly (string Code, string Flag, string Name)[] Currencies =
         [("USD", "\U0001f1fa\U0001f1f8", "Доллар"), ("EUR", "\U0001f1ea\U0001f1fa", "Евро"), ("RUB", "\U0001f1f7\U0001f1fa", "Рос. рубль"), ("BYN", "\U0001f1e7\U0001f1fe", "Бел. рубль")];
     private readonly IServiceProvider _provider;
@@ -432,6 +433,7 @@ public class TelegramBotService
             "🏷️ Флаг НДФЛ" => CbNdflFlag,
             "📌 Дата НДФЛ" => CbNdflFrom,
             "✏️ Изменить сумму" => CbEditAmount,
+            "📖 Помощь" => CbHelp,
             _ => null
         };
 
@@ -515,6 +517,64 @@ public class TelegramBotService
                         : InlineKeyboardButton.WithCallbackData($"{c.Flag} {c.Name}", $"{CbCurrencySet}:{c.Code}")
                 ).ToList();
                 await output("Выберите валюту:", new InlineKeyboardMarkup([currButtons, [InlineKeyboardButton.WithCallbackData("⬅️ Назад", CbMain)]]));
+                break;
+            case CbHelp:
+                await output(
+                    """
+                    📖 Справка
+
+                    Этот бот помогает учитывать общий долг по зарплате: начисления и выплаты.
+
+                    ━━━━━━━━━━━━━━━━━━━━━━
+                    📌 ГЛАВНОЕ МЕНЮ
+                    ━━━━━━━━━━━━━━━━━━━━━━
+
+                    💰 Общий долг — текущий баланс: сколько начислено, выплачено, НДФЛ и остаток долга
+
+                    📚 История долга — таблица по датам с начислениями, выплатами, НДФЛ и бегущим остатком
+
+                    💸 Учет полученной выплаты — отметить, что вы получили деньги. Бот спросит сумму и дату
+
+                    🔄 Пересчитать начисления — заполнить пропущенные начисления по правилам и пересчитать НДФЛ
+
+                    ⚙️ Настройки — параметры: правила начислений, время проверки, дата начала расчёта, НДФЛ
+
+                    🏷️ Валюта — выбрать валюту отображения (RUB, USD, EUR, BYN). Суммы конвертируются по курсу НБ РБ
+
+                    📖 Помощь — эта справка
+
+                    ━━━━━━━━━━━━━━━━━━━━━━
+                    ⚙️ ПОДМЕНЮ «Настройки»
+                    ━━━━━━━━━━━━━━━━━━━━━━
+
+                    📆 Правила начислений — показать все правила: в какой день какая сумма начисляется
+
+                    ➕ Добавить правило — задать новое начисление. Формат: <день> <сумма> (например: 15 75000)
+
+                    ➖ Удалить правило — убрать начисление по дню месяца
+
+                    🕒 Время проверки — когда бот проверяет и начисляет. Формат: ЧЧ:ММ (например: 12:00)
+
+                    📅 Дата начала расчёта — с какого числа считать общий долг. Формат: ДД.ММ.ГГГГ
+
+                    🏷️ НДФЛ — включить/выключить автоматический расчёт НДФЛ
+
+                    📌 Дата старта НДФЛ — с какой даты начать удерживать НДФЛ. Формат: ДД.ММ.ГГГГ
+
+                    ✏️ Изменить сумму записи — исправить сумму начисления или выплаты. Формат: <дата> <сумма> [получил]
+
+                    ━━━━━━━━━━━━━━━━━━━━━━
+                    🔐 ШИФРОВАНИЕ
+                    ━━━━━━━━━━━━━━━━━━━━━━
+
+                    • Все суммы зашифрованы вашим паролем (AES-256-GCM)
+                    • Пароль нигде не хранится — только вы знаете его
+                    • Администратор НЕ может видеть ваши суммы
+                    • Сессия: 30 минут неактивности, затем введите пароль заново
+                    • /password — сменить пароль
+                    • ⚠️ Забыли пароль = данные потеряны навсегда
+                    """,
+                    await GetMainKeyboardAsync(scheduleService, chatId));
                 break;
             default:
                 if (data.StartsWith(CbCurrencySet + ":"))
@@ -929,7 +989,8 @@ $"""
             [InlineKeyboardButton.WithCallbackData("💸 Учет полученной выплаты", CbPay)],
             [InlineKeyboardButton.WithCallbackData("🔄 Пересчитать начисления", CbRecalc)],
             [InlineKeyboardButton.WithCallbackData("⚙️ Настройки", CbSettings)],
-            [InlineKeyboardButton.WithCallbackData($"{flag} Валюта: {currency}", CbCurrency)]
+            [InlineKeyboardButton.WithCallbackData($"{flag} Валюта: {currency}", CbCurrency)],
+            [InlineKeyboardButton.WithCallbackData("📖 Помощь", CbHelp)]
         ]);
     }
 
