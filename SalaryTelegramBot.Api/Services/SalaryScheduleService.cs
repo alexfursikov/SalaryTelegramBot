@@ -25,7 +25,22 @@ public class SalaryScheduleService
         if (_settingsCache.ContainsKey(chatId) && _seededChats.Contains(chatId))
             return;
 
-        if (!await _db.BotSettings.AnyAsync(x => x.ChatId == chatId))
+        var hasSettings = await _db.BotSettings.AnyAsync(x => x.ChatId == chatId);
+        var hasRules = await _db.AccrualRules.AnyAsync(x => x.ChatId == chatId);
+
+        if (hasSettings && hasRules)
+        {
+            _seededChats.Add(chatId);
+            if (!_settingsCache.ContainsKey(chatId))
+            {
+                var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+                if (settings is not null)
+                    _settingsCache[chatId] = settings;
+            }
+            return;
+        }
+
+        if (!hasSettings)
         {
             _db.BotSettings.Add(new BotSettings
             {
@@ -36,7 +51,7 @@ public class SalaryScheduleService
             });
         }
 
-        if (!await _db.AccrualRules.AnyAsync(x => x.ChatId == chatId))
+        if (!hasRules)
         {
             foreach (var schedule in _defaultSettings.Schedules)
             {
@@ -351,9 +366,6 @@ $"""
 
     private async Task<BotSettings> GetOrCreateBotSettingsAsync(long chatId)
     {
-        if (_settingsCache.TryGetValue(chatId, out var cached))
-            return cached;
-
         var settings = await _db.BotSettings
             .FirstOrDefaultAsync(x => x.ChatId == chatId);
 

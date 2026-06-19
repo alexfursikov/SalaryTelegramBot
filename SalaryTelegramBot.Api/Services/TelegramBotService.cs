@@ -728,7 +728,7 @@ $"""
             [InlineKeyboardButton.WithCallbackData("➕ Добавить правило", CbScheduleAdd), InlineKeyboardButton.WithCallbackData("➖ Удалить правило", CbScheduleDel)],
             [InlineKeyboardButton.WithCallbackData("🕒 Время проверки", CbScheduleTime), InlineKeyboardButton.WithCallbackData("📅 Дата начала расчета", CbCalcFrom)],
             [InlineKeyboardButton.WithCallbackData(ndflLabel, CbNdflFlag), InlineKeyboardButton.WithCallbackData("📌 Дата старта НДФЛ", CbNdflFrom)],
-            [InlineKeyboardButton.WithCallbackData("✏️ Изменить сумму записи", CbEditAmount), InlineKeyboardButton.WithCallbackData("🔄 Пересчитать начисления", CbRecalc)],
+            [InlineKeyboardButton.WithCallbackData("✏️ Изменить сумму записи", CbEditAmount)],
             [InlineKeyboardButton.WithCallbackData("⬅️ Назад", CbMain)]
         ]);
     }
