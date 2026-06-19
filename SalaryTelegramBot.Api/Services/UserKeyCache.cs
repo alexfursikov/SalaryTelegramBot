@@ -13,7 +13,10 @@ public class UserKeyCache
     public byte[]? GetKey(long chatId)
     {
         if (_cache.TryGetValue(chatId, out var entry) && entry.Expires > DateTime.UtcNow)
+        {
+            _cache[chatId] = (entry.Key, DateTime.UtcNow + _sessionDuration);
             return entry.Key;
+        }
         _cache.TryRemove(chatId, out _);
         return null;
     }
