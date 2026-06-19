@@ -458,35 +458,51 @@ $"""
 
     public async Task<int> EncryptUserDataAsync(long chatId, byte[] key)
     {
-        var transactions = await _db.Transactions
-            .Where(x => x.ChatId == chatId)
-            .ToListAsync();
-
-        var rules = await _db.AccrualRules
-            .Where(x => x.ChatId == chatId)
-            .ToListAsync();
-
-        foreach (var tx in transactions)
+        var amounts = new Dictionary<int, decimal>();
+        await using (var conn = _db.Database.GetDbConnection())
         {
-            if (tx.EncryptedAmount is null)
-            {
-                tx.EncryptedAmount = _encryption.Encrypt(tx.Amount, key);
-            }
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT \"Id\", \"Amount\" FROM \"Transactions\" WHERE \"ChatId\" = @chatId AND \"EncryptedAmount\" IS NULL";
+            var p = cmd.CreateParameter();
+            p.ParameterName = "@chatId";
+            p.Value = chatId;
+            cmd.Parameters.Add(p);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                amounts[reader.GetInt32(0)] = reader.GetDecimal(1);
         }
 
-        foreach (var rule in rules)
+        foreach (var (id, amount) in amounts)
         {
-            if (rule.EncryptedAmount is null)
-            {
-                rule.EncryptedAmount = _encryption.Encrypt(rule.Amount, key);
-            }
+            await _db.Database.ExecuteSqlRawAsync(
+                "UPDATE \"Transactions\" SET \"EncryptedAmount\" = @enc WHERE \"Id\" = @id",
+                new Microsoft.Data.SqlClient.SqlParameter("@enc", _encryption.Encrypt(amount, key)),
+                new Microsoft.Data.SqlClient.SqlParameter("@id", id));
         }
 
-        var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
-        if (settings is not null)
-            settings.IsEncrypted = true;
+        var ruleAmounts = new Dictionary<int, decimal>();
+        await using (var conn2 = _db.Database.GetDbConnection())
+        {
+            await conn2.OpenAsync();
+            await using var cmd2 = conn2.CreateCommand();
+            cmd2.CommandText = "SELECT \"Id\", \"Amount\" FROM \"AccrualRules\" WHERE \"ChatId\" = @chatId AND \"EncryptedAmount\" IS NULL";
+            var p2 = cmd2.CreateParameter();
+            p2.ParameterName = "@chatId";
+            p2.Value = chatId;
+            cmd2.Parameters.Add(p2);
+            await using var reader2 = await cmd2.ExecuteReaderAsync();
+            while (await reader2.ReadAsync())
+                ruleAmounts[reader2.GetInt32(0)] = reader2.GetDecimal(1);
+        }
 
-        await _db.SaveChangesAsync();
+        foreach (var (id, amount) in ruleAmounts)
+        {
+            await _db.Database.ExecuteSqlRawAsync(
+                "UPDATE \"AccrualRules\" SET \"EncryptedAmount\" = @enc WHERE \"Id\" = @id",
+                new Microsoft.Data.SqlClient.SqlParameter("@enc", _encryption.Encrypt(amount, key)),
+                new Microsoft.Data.SqlClient.SqlParameter("@id", id));
+        }
 
         await _db.Database.ExecuteSqlRawAsync(
             "UPDATE \"Transactions\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
@@ -495,7 +511,14 @@ $"""
             "UPDATE \"AccrualRules\" SET \"Amount\" = 0 WHERE \"ChatId\" = {0} AND \"EncryptedAmount\" IS NOT NULL",
             chatId);
 
-        return transactions.Count + rules.Count;
+        var settings = await _db.BotSettings.FirstOrDefaultAsync(x => x.ChatId == chatId);
+        if (settings is not null)
+        {
+            settings.IsEncrypted = true;
+            await _db.SaveChangesAsync();
+        }
+
+        return amounts.Count + ruleAmounts.Count;
     }
 
     private void DecryptTransactions(List<Transaction> transactions, byte[] key)
