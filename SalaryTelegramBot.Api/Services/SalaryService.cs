@@ -333,7 +333,7 @@ $"""
             .ToList();
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Дата   Начисл   Выплата   НДФЛ   Ост({sym})");
+        sb.AppendLine($"Дата   Начисл   Выплата   НДФЛ   Остаток");
         sb.AppendLine("------+--------+---------+------+--------");
 
         decimal balance = 0;
