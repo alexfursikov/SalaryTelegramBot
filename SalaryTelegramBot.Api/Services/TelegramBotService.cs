@@ -880,8 +880,6 @@ $"""
 
     private async Task<bool> HandlePasswordSetup(long chatId, string text, int messageId, OutputFunc output, SalaryScheduleService scheduleService)
     {
-        await DeleteMessageIfExists(chatId, messageId);
-
         if (string.IsNullOrWhiteSpace(text) || text.Length < 4 || text.Length > 128)
         {
             await output("Пароль должен содержать от 4 до 128 символов. Попробуйте еще раз:", GetCancelKeyboard());
@@ -929,8 +927,6 @@ $"""
 
     private async Task<bool> HandlePasswordEntry(long chatId, string text, int messageId, OutputFunc output)
     {
-        await DeleteMessageIfExists(chatId, messageId);
-
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SalaryTelegramBot.Api.Data.AppDbContext>();
 
