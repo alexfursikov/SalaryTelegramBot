@@ -184,14 +184,14 @@ public class TelegramBotService
             if (!hasPassword)
             {
                 _state.SetState(chatId, nameof(BotAwaitState.PasswordSetup));
-                await output("Для начала работы установите пароль.\n\n⚠️ Пароль используется для шифрования ваших финансовых данных. Если вы забудете пароль, данные будут потеряны навсегда.\n\nВведите пароль:");
+                await output("Для начала работы установите пароль.\n\n⚠️ Пароль используется для шифрования ваших финансовых данных. Если вы забудете пароль, данные будут потеряны навсегда.\n\nВведите пароль:", new ForceReplyMarkup { Selective = true });
                 return;
             }
 
             if (!_keyCache.HasKey(chatId))
             {
                 _state.SetState(chatId, nameof(BotAwaitState.PasswordEntry));
-                await output("Введите пароль для доступа к данным:", GetCancelKeyboard());
+                await output("Введите пароль для доступа к данным:", new ForceReplyMarkup { Selective = true });
                 return;
             }
 
@@ -262,7 +262,7 @@ public class TelegramBotService
         if (text == "/password")
         {
             _state.SetState(chatId, nameof(BotAwaitState.PasswordSetup));
-            await output("Введите новый пароль:", GetCancelKeyboard());
+            await output("Введите новый пароль:", new ForceReplyMarkup { Selective = true });
             return;
         }
 
@@ -270,7 +270,7 @@ public class TelegramBotService
         if (hasPwd && !_keyCache.HasKey(chatId) && text != "Отмена")
         {
             _state.SetState(chatId, nameof(BotAwaitState.PasswordEntry));
-            await output("Сессия истекла. Введите пароль для доступа к данным:", GetCancelKeyboard());
+            await output("Сессия истекла. Введите пароль для доступа к данным:", new ForceReplyMarkup { Selective = true });
             return;
         }
 
@@ -882,7 +882,7 @@ $"""
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length < 4 || text.Length > 128)
         {
-            await output("Пароль должен содержать от 4 до 128 символов. Попробуйте еще раз:", GetCancelKeyboard());
+            await output("Пароль должен содержать от 4 до 128 символов. Попробуйте еще раз:", new ForceReplyMarkup { Selective = true });
             return false;
         }
 
@@ -948,7 +948,7 @@ $"""
         }
         catch
         {
-            await output("Неверный пароль. Попробуйте еще раз:", GetCancelKeyboard());
+            await output("Неверный пароль. Попробуйте еще раз:", new ForceReplyMarkup { Selective = true });
             return false;
         }
 
