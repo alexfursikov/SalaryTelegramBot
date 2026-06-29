@@ -64,9 +64,23 @@ public class TelegramBotService
         ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
         ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")!);
 
+    private async Task DeleteMessageIfExists(long chatId, int messageId)
+    {
+        if (messageId <= 0) return;
+        try
+        {
+            var bot = CreateBotClient();
+            await bot.DeleteMessage(chatId, messageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to delete message {MessageId} in chat {ChatId}", messageId, chatId);
+        }
+    }
+
     private delegate Task OutputFunc(string text, IReplyMarkup? keyboard = null, ParseMode parseMode = ParseMode.None);
 
-    public async Task HandleMessageAsync(long chatId, string text, CancellationToken token)
+    public async Task HandleMessageAsync(long chatId, string text, int messageId, CancellationToken token)
     {
         if (chatId < 0) return;
         if (!_rateLimiter.IsAllowed(chatId))
@@ -77,7 +91,7 @@ public class TelegramBotService
         async Task SendMessage(string t, IReplyMarkup? k = null, ParseMode pm = ParseMode.None)
             => await bot.SendMessage(chatId, t, replyMarkup: k, parseMode: pm, cancellationToken: token);
 
-        await ExecuteCommandAsync(chatId, text, SendMessage, token);
+        await ExecuteCommandAsync(chatId, text, messageId, SendMessage, token);
     }
 
     public async Task HandleCallbackAsync(long chatId, string data, string callbackQueryId, int messageId, CancellationToken token)
@@ -110,10 +124,10 @@ public class TelegramBotService
             }
         }
 
-        await ExecuteCommandAsync(chatId, data, EditMessage, token);
+        await ExecuteCommandAsync(chatId, data, messageId, EditMessage, token);
     }
 
-    private async Task ExecuteCommandAsync(long chatId, string text, OutputFunc output, CancellationToken token)
+    private async Task ExecuteCommandAsync(long chatId, string text, int messageId, OutputFunc output, CancellationToken token)
     {
         using var scope = _provider.CreateScope();
         var salaryService = scope.ServiceProvider.GetRequiredService<SalaryService>();
@@ -147,8 +161,8 @@ public class TelegramBotService
                     BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
                     BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
                     BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
-                    BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, output, scheduleService),
-                    BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, output),
+                    BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, messageId, output, scheduleService),
+                    BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, messageId, output),
                     _ => false
                 };
 
@@ -439,7 +453,7 @@ public class TelegramBotService
 
         if (callbackData is not null)
         {
-            await ExecuteCommandAsync(chatId, callbackData, output, token);
+            await ExecuteCommandAsync(chatId, callbackData, messageId, output, token);
             return;
         }
 
@@ -864,8 +878,10 @@ $"""
         }
     }
 
-    private async Task<bool> HandlePasswordSetup(long chatId, string text, OutputFunc output, SalaryScheduleService scheduleService)
+    private async Task<bool> HandlePasswordSetup(long chatId, string text, int messageId, OutputFunc output, SalaryScheduleService scheduleService)
     {
+        await DeleteMessageIfExists(chatId, messageId);
+
         if (string.IsNullOrWhiteSpace(text) || text.Length < 4 || text.Length > 128)
         {
             await output("Пароль должен содержать от 4 до 128 символов. Попробуйте еще раз:", GetCancelKeyboard());
@@ -911,8 +927,10 @@ $"""
         return true;
     }
 
-    private async Task<bool> HandlePasswordEntry(long chatId, string text, OutputFunc output)
+    private async Task<bool> HandlePasswordEntry(long chatId, string text, int messageId, OutputFunc output)
     {
+        await DeleteMessageIfExists(chatId, messageId);
+
         using var scope = _provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SalaryTelegramBot.Api.Data.AppDbContext>();
 

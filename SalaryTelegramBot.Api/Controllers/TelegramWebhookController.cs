@@ -48,9 +48,10 @@ public class TelegramWebhookController : ControllerBase
             {
                 var chatId = msg.SelectToken("chat.id")?.Value<long>() ?? 0;
                 var text = msg["text"]?.Value<string>() ?? "";
+                var messageId = msg["message_id"]?.Value<int>() ?? 0;
                 _ = Task.Run(async () =>
                 {
-                    try { await _handler.HandleMessageAsync(chatId, text, CancellationToken.None); }
+                    try { await _handler.HandleMessageAsync(chatId, text, messageId, CancellationToken.None); }
                     catch (Exception ex) { _logger.LogError(ex, "Error handling message {Id}", updateId); }
                 });
             }
