@@ -531,11 +531,11 @@ public class TelegramBotService
                 break;
             case CbEditSalary:
                 _state.SetState(chatId, nameof(BotAwaitState.EditSalaryInput));
-                await output("✏️ Изменение начисления\n\nФормат: <дата> <сумма>\n\nПример: 30.11.2025 85000", GetBackKeyboard(CbSettings));
+                await output("✏️ Изменение начисления\n\nФормат: <дата> <сумма> [номер]\n\nПример: 30.11.2025 85000\nЕсли на дату несколько записей: 30.11.2025 85000 2", GetBackKeyboard(CbSettings));
                 break;
             case CbEditPayment:
                 _state.SetState(chatId, nameof(BotAwaitState.EditPaymentInput));
-                await output("✏️ Изменение выплаты\n\nФормат: <дата> <сумма>\n\nПример: 30.11.2025 50000", GetBackKeyboard(CbSettings));
+                await output("✏️ Изменение выплаты\n\nФормат: <дата> <сумма> [номер]\n\nПример: 30.11.2025 50000\nЕсли на дату несколько записей: 30.11.2025 50000 2", GetBackKeyboard(CbSettings));
                 break;
             case CbCurrency:
                 var currentCurrency = await scheduleService.GetCurrencyAsync(chatId);
@@ -879,14 +879,17 @@ $"""
 
             var editReceivedPayment = parts.Length >= 3 &&
                                       parts[2].Equals("получил", StringComparison.OrdinalIgnoreCase);
-            var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editReceivedPayment);
+            var recordIndex = -1;
+            if (parts.Length >= 3 && int.TryParse(parts[^1], out var idx))
+                recordIndex = idx;
+            var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editReceivedPayment, "RUB", recordIndex);
             await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse edit pay input");
-            await output("Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000\n30.11.2025 85000 получил", GetCancelKeyboard());
+            await output("Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000\n30.11.2025 85000 получил\n30.11.2025 85000 2 (номер записи)", GetCancelKeyboard());
             return false;
         }
     }
@@ -908,15 +911,18 @@ $"""
                 return false;
             }
 
-            var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editPayment);
+            var recordIndex = -1;
+            if (parts.Length >= 3 && int.TryParse(parts[^1], out var idx))
+                recordIndex = idx;
+
+            var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editPayment, "RUB", recordIndex);
             await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse edit typed input");
-            var typeLabel = editPayment ? "выплаты" : "начисления";
-            await output($"Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000", GetCancelKeyboard());
+            await output("Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000\n30.11.2025 85000 2 (номер записи)", GetCancelKeyboard());
             return false;
         }
     }

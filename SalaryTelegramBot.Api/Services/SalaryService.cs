@@ -413,7 +413,7 @@ $"""
         return sb.ToString().TrimEnd();
     }
 
-    public async Task<string> UpdateAmountByDate(long chatId, DateTime date, decimal newAmount, bool editReceivedPayment = false, string currency = "RUB")
+    public async Task<string> UpdateAmountByDate(long chatId, DateTime date, decimal newAmount, bool editReceivedPayment = false, string currency = "RUB", int recordIndex = -1)
     {
         var key = _keyCache.GetKey(chatId);
         var normalizedDate = NormalizeToUtc(date);
@@ -432,7 +432,26 @@ $"""
         if (items.Count == 0)
             return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} не найдена.";
 
-        var target = items[^1];
+        if (items.Count == 1)
+            recordIndex = 1;
+
+        if (recordIndex < 1 || recordIndex > items.Count)
+        {
+            if (items.Count > 1)
+            {
+                var amounts = string.Join("\n", items.Select((x, i) =>
+                {
+                    var amt = (key is not null && x.EncryptedAmount is not null)
+                        ? _encryption.Decrypt(x.EncryptedAmount, key)
+                        : x.Amount;
+                    return $"  {i + 1}. {amt:N0} {sym}";
+                }));
+                return $"В этот день {items.Count} записей типа \"{typeLabel}\":\n{amounts}\n\nУкажите номер: <дата> <сумма> <номер>";
+            }
+            return $"{typeLabel} за {normalizedDate:dd.MM.yyyy} не найдена.";
+        }
+
+        var target = items[recordIndex - 1];
 
         if (key is not null && target.EncryptedAmount is not null)
             target.Amount = _encryption.Decrypt(target.EncryptedAmount, key);
@@ -448,8 +467,7 @@ $"""
         {
             return
 $"""
-В этот день найдено {items.Count} записей типа "{typeLabel}".
-Изменена последняя запись: {oldAmount:N0} {sym} -> {newAmount:N0} {sym}.
+Изменена запись {recordIndex} из {items.Count} за {normalizedDate:dd.MM.yyyy} ({typeLabel}): {oldAmount:N0} {sym} -> {newAmount:N0} {sym}.
 """;
         }
 
