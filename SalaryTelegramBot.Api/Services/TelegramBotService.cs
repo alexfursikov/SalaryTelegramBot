@@ -429,7 +429,6 @@ public class TelegramBotService
                 var split = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 decimal amount = decimal.Parse(split[1], CultureInfo.InvariantCulture);
                 DateTime date = split.Length >= 3 ? ParseUserDate(split[2]) : DateTime.Now;
-                date = await scheduleService.SnapToNearestAccrualDayAsync(chatId, date);
                 await salaryService.AddPayment(chatId, amount, date);
                 await output("Полученная выплата сохранена");
             }
@@ -755,7 +754,6 @@ $"""
                 ? DateTime.Now
                 : ParseUserDate(text);
 
-            date = await scheduleService.SnapToNearestAccrualDayAsync(chatId, date);
             await salaryService.AddPayment(chatId, amount.Value, date);
             _state.RemovePendingAmount(chatId);
             await output("Полученная выплата сохранена", await GetMainKeyboardAsync(scheduleService, chatId));
