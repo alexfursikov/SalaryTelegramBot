@@ -26,6 +26,8 @@ public class TelegramBotService
     private const string CbNdflFlag = "menu:ndflflag";
     private const string CbNdflFrom = "menu:ndflfrom";
     private const string CbEditAmount = "menu:editamount";
+    private const string CbEditSalary = "menu:editsalary";
+    private const string CbEditPayment = "menu:editpayment";
     private const string CbMain = "menu:main";
     private const string CbCurrency = "menu:currency";
     private const string CbCurrencySet = "menu:currencysymbol";
@@ -161,6 +163,8 @@ public class TelegramBotService
                     BotAwaitState.CalculationMonthInput => await HandleCalculationMonthInput(scheduleService, chatId, text, output),
                     BotAwaitState.NdflFromInput => await HandleNdflFromInput(scheduleService, chatId, text, output),
                     BotAwaitState.EditPayInput => await HandleEditPayInput(salaryService, scheduleService, chatId, text, output),
+                    BotAwaitState.EditSalaryInput => await HandleEditTypedInput(salaryService, scheduleService, chatId, text, false, output),
+                    BotAwaitState.EditPaymentInput => await HandleEditTypedInput(salaryService, scheduleService, chatId, text, true, output),
                     BotAwaitState.PasswordSetup => await HandlePasswordSetup(chatId, text, messageId, output, scheduleService),
                     BotAwaitState.PasswordEntry => await HandlePasswordEntry(chatId, text, messageId, output),
                     _ => false
@@ -237,7 +241,7 @@ public class TelegramBotService
 
                     📌 Дата старта НДФЛ — с какой даты начать удерживать НДФЛ. Формат: ДД.ММ.ГГГГ
 
-                    ✏️ Изменить сумму записи — исправить сумму начисления или выплаты. Формат: <дата> <сумма> [получил]
+                    ✏️ Изменить сумму — исправить сумму начисления или выплаты. Выберите тип, затем введите дату и сумму
 
                     ━━━━━━━━━━━━━━━━━━━━━━
                     🔐 ШИФРОВАНИЕ
@@ -520,8 +524,19 @@ public class TelegramBotService
                 await output("📌 Введите дату старта НДФЛ:", GetBackKeyboard(CbSettings));
                 break;
             case CbEditAmount:
-                _state.SetState(chatId, nameof(BotAwaitState.EditPayInput));
-                await output("✏️ Формат: <дата> <сумма> [получил]", GetBackKeyboard(CbSettings));
+                var editTypeKeyboard = new InlineKeyboardMarkup([
+                    [InlineKeyboardButton.WithCallbackData("📊 Начисление", CbEditSalary), InlineKeyboardButton.WithCallbackData("💸 Выплата", CbEditPayment)],
+                    [InlineKeyboardButton.WithCallbackData("⬅️ Назад", CbSettings)]
+                ]);
+                await output("Выберите, что хотите изменить:", editTypeKeyboard);
+                break;
+            case CbEditSalary:
+                _state.SetState(chatId, nameof(BotAwaitState.EditSalaryInput));
+                await output("✏️ Изменение начисления\n\nФормат: <дата> <сумма>\n\nПример: 30.11.2025 85000", GetBackKeyboard(CbSettings));
+                break;
+            case CbEditPayment:
+                _state.SetState(chatId, nameof(BotAwaitState.EditPaymentInput));
+                await output("✏️ Изменение выплаты\n\nФормат: <дата> <сумма>\n\nПример: 30.11.2025 50000", GetBackKeyboard(CbSettings));
                 break;
             case CbCurrency:
                 var currentCurrency = await scheduleService.GetCurrencyAsync(chatId);
@@ -575,7 +590,7 @@ public class TelegramBotService
 
                     📌 Дата старта НДФЛ — с какой даты начать удерживать НДФЛ. Формат: ДД.ММ.ГГГГ
 
-                    ✏️ Изменить сумму записи — исправить сумму начисления или выплаты. Формат: <дата> <сумма> [получил]
+                    ✏️ Изменить сумму — исправить сумму начисления или выплаты. Выберите тип, затем введите дату и сумму
 
                     ━━━━━━━━━━━━━━━━━━━━━━
                     🔐 ШИФРОВАНИЕ
@@ -703,9 +718,9 @@ $"""
         try
         {
             var amount = decimal.Parse(text, CultureInfo.InvariantCulture);
-            if (amount <= 0 || amount > 100_000_000m)
+            if (amount < 0 || amount > 100_000_000m)
             {
-                await output("Сумма должна быть от 1 до 100 000 000.\n\nПример: 75000", GetCancelKeyboard());
+                await output("Сумма должна быть от 0 до 100 000 000.\n\nПример: 75000", GetCancelKeyboard());
                 return false;
             }
             _state.SetPendingAmount(chatId, amount);
@@ -858,9 +873,9 @@ $"""
             var date = ParseUserDate(parts[0]);
             var amount = decimal.Parse(parts[1], CultureInfo.InvariantCulture);
 
-            if (amount <= 0 || amount > 100_000_000m)
+            if (amount < 0 || amount > 100_000_000m)
             {
-                await output("Сумма должна быть от 1 до 100 000 000.", GetCancelKeyboard());
+                await output("Сумма должна быть от 0 до 100 000 000.", GetCancelKeyboard());
                 return false;
             }
 
@@ -874,6 +889,36 @@ $"""
         {
             _logger.LogWarning(ex, "Failed to parse edit pay input");
             await output("Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000\n30.11.2025 85000 получил", GetCancelKeyboard());
+            return false;
+        }
+    }
+
+    private async Task<bool> HandleEditTypedInput(SalaryService salaryService, SalaryScheduleService scheduleService, long chatId, string text, bool editPayment, OutputFunc output)
+    {
+        try
+        {
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+                throw new FormatException("Invalid format");
+
+            var date = ParseUserDate(parts[0]);
+            var amount = decimal.Parse(parts[1], CultureInfo.InvariantCulture);
+
+            if (amount < 0 || amount > 100_000_000m)
+            {
+                await output("Сумма должна быть от 0 до 100 000 000.", GetCancelKeyboard());
+                return false;
+            }
+
+            var result = await salaryService.UpdateAmountByDate(chatId, date, amount, editPayment);
+            await output(result, await GetMainKeyboardAsync(scheduleService, chatId));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse edit typed input");
+            var typeLabel = editPayment ? "выплаты" : "начисления";
+            await output($"Не смог распознать ввод.\n\nФормат:\n30.11.2025 85000", GetCancelKeyboard());
             return false;
         }
     }
@@ -1028,7 +1073,7 @@ $"""
             [InlineKeyboardButton.WithCallbackData("➕ Добавить правило", CbScheduleAdd), InlineKeyboardButton.WithCallbackData("➖ Удалить правило", CbScheduleDel)],
             [InlineKeyboardButton.WithCallbackData("🕒 Время проверки", CbScheduleTime), InlineKeyboardButton.WithCallbackData("📅 Дата начала расчета", CbCalcFrom)],
             [InlineKeyboardButton.WithCallbackData(ndflLabel, CbNdflFlag), InlineKeyboardButton.WithCallbackData("📌 Дата старта НДФЛ", CbNdflFrom)],
-            [InlineKeyboardButton.WithCallbackData("✏️ Изменить сумму записи", CbEditAmount)],
+            [InlineKeyboardButton.WithCallbackData("✏️ Изменить сумму", CbEditAmount)],
             [InlineKeyboardButton.WithCallbackData("⬅️ Назад", CbMain)]
         ]);
     }
@@ -1043,6 +1088,7 @@ $"""
     {
         PayAmountInput, PayDateInput, ScheduleAddInput, ScheduleDelInput,
         ScheduleTimeInput, CalculationMonthInput, NdflFromInput, EditPayInput,
+        EditSalaryInput, EditPaymentInput,
         PasswordSetup, PasswordEntry
     }
 }
