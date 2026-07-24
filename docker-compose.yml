@@ -19,6 +19,7 @@ services:
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
       DB_PASSWORD: ${DB_PASSWORD}
+      BASE_URL: ${BASE_URL}
 
 volumes:
   postgres_data:

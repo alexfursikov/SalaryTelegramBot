@@ -157,10 +157,11 @@ try
     if (!string.IsNullOrWhiteSpace(botToken))
     {
         var bot = new TelegramBotClient(botToken);
-        var baseUrl = Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
+        var baseUrl = Environment.GetEnvironmentVariable("BASE_URL")
+            ?? Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            Console.WriteLine("RENDER_EXTERNAL_URL not set, skipping webhook registration.");
+            Console.WriteLine("BASE_URL not set, skipping webhook registration.");
         }
         else
         {
