@@ -10,7 +10,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   bot:
-    build: .
+    build:
+      context: .
+      dockerfile: SalaryTelegramBot.Api/Dockerfile
     restart: always
     depends_on:
       - postgres
