@@ -11,9 +11,11 @@ RUN dotnet publish "SalaryTelegramBot.Api.csproj" -c Release -o /app/publish /p:
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 ENV ASPNETCORE_URLS="http://+:8080"
 
 EXPOSE 8080
 
-ENTRYPOINT ["dotnet", "SalaryTelegramBot.Api.dll"]
+ENTRYPOINT ["/app/entrypoint.sh"]

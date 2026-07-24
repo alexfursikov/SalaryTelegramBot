@@ -11,9 +11,11 @@ obj/
 appsettings.Development.json
 AGENTS.md
 DEPLOY.md
-.env.example
-docker-compose.yml
+
 fly.toml
 railway.json
 render.yaml
 Properties/launchSettings.json
+backups/
+scripts/migrate-db.sh
+scripts/migrate-db.bat
