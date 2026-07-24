@@ -84,6 +84,7 @@ builder.Services.AddScoped<SalaryService>();
 builder.Services.AddScoped<SalaryScheduleService>();
 builder.Services.AddScoped<ReminderService>();
 builder.Services.AddHostedService<SchedulerService>();
+builder.Services.AddHostedService<TelegramPollingService>();
 
 var botTokenForDi = builder.Configuration["Telegram:Token"]
     ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
@@ -146,36 +147,6 @@ try
             Console.WriteLine($"DB setup attempt {i + 1} failed: {ex.Message}");
             if (i == 2) throw;
             await Task.Delay(3000);
-        }
-    }
-
-    var botToken = builder.Configuration["Telegram:Token"]
-        ?? Environment.GetEnvironmentVariable("TELEGRAM__TOKEN")
-        ?? Environment.GetEnvironmentVariable("TELEGRAM__Token")
-        ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
-
-    if (!string.IsNullOrWhiteSpace(botToken))
-    {
-        var bot = new TelegramBotClient(botToken);
-        var baseUrl = Environment.GetEnvironmentVariable("BASE_URL")
-            ?? Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            Console.WriteLine("BASE_URL not set, skipping webhook registration.");
-        }
-        else
-        {
-            var webhookUrl = $"{baseUrl}/webhook";
-            var secretToken = Environment.GetEnvironmentVariable("TELEGRAM__SECRET_TOKEN")
-                ?? Environment.GetEnvironmentVariable("TELEGRAM_SECRET_TOKEN");
-
-            Console.WriteLine($"Setting webhook to {webhookUrl}");
-            await bot.SetWebhook(
-                webhookUrl,
-                allowedUpdates: [],
-                dropPendingUpdates: false,
-                secretToken: secretToken);
-            Console.WriteLine("Webhook set successfully.");
         }
     }
 
