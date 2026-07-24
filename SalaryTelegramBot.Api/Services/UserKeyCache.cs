@@ -5,7 +5,7 @@ namespace SalaryTelegramBot.Api.Services;
 public class UserKeyCache
 {
     private readonly ConcurrentDictionary<long, (byte[] Key, DateTime Expires)> _cache = new();
-    private readonly TimeSpan _sessionDuration = TimeSpan.FromMinutes(30);
+    private readonly TimeSpan _sessionDuration = TimeSpan.FromHours(24);
 
     public void SetKey(long chatId, byte[] key)
         => _cache[chatId] = (key, DateTime.UtcNow + _sessionDuration);
