@@ -319,6 +319,7 @@ $"""
             return "История пока пустая.";
 
         var sym = GetCurrencySymbol(currency);
+        var ndflEnabled = await IsNdflEnabled(chatId);
 
         var grouped = list
             .GroupBy(x => x.Date.Date)
@@ -328,7 +329,7 @@ $"""
                 Date = g.Key,
                 Salary = g.Where(x => x.Type == TransactionType.Salary).Sum(x => x.Amount),
                 Payment = g.Where(x => x.Type == TransactionType.Payment).Sum(x => x.Amount),
-                Ndfl = g.Where(x => x.Type == TransactionType.Vat).Sum(x => x.Amount)
+                Ndfl = ndflEnabled ? g.Where(x => x.Type == TransactionType.Vat).Sum(x => x.Amount) : 0m
             })
             .ToList();
 
@@ -366,6 +367,8 @@ $"""
         if (list.Count == 0)
             return "История пока пустая.";
 
+        var ndflEnabled = await IsNdflEnabled(chatId);
+
         var grouped = list
             .GroupBy(x => x.Date.Date)
             .OrderBy(x => x.Key)
@@ -374,7 +377,7 @@ $"""
                 Date = g.Key,
                 Salary = g.Where(x => x.Type == TransactionType.Salary).Sum(x => x.Amount),
                 Payment = g.Where(x => x.Type == TransactionType.Payment).Sum(x => x.Amount),
-                Ndfl = g.Where(x => x.Type == TransactionType.Vat).Sum(x => x.Amount)
+                Ndfl = ndflEnabled ? g.Where(x => x.Type == TransactionType.Vat).Sum(x => x.Amount) : 0m
             })
             .ToList();
 
